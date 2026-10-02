@@ -1,93 +1,121 @@
-# project
+# P127 AI Gateway
 
+COMP9900 26T3 capstone project P127, an AI request analysis platform: one OpenAI-compatible gateway in front of several LLM providers, with virtual keys, usage and cost logging, budgets and a web dashboard.
 
+The repository holds two services that start together with Docker Compose: a FastAPI backend (the gateway) and a React dashboard. The database is the team's hosted Supabase project, so there is no database container.
 
-## Getting started
+## Repository structure
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```text
+.
+├── backend/                  FastAPI gateway (Python 3.12)
+│   ├── app/
+│   │   ├── main.py           creates the app and registers the routers
+│   │   ├── config.py         settings read from environment variables
+│   │   └── routers/          one module per area (health now; keys, chat, stats later)
+│   ├── tests/                pytest tests
+│   ├── Dockerfile
+│   ├── requirements.txt      runtime dependencies, pinned
+│   └── requirements-dev.txt  test dependencies
+├── frontend/                 dashboard (React + TypeScript, built with Vite)
+│   ├── src/                  React code; api.ts holds the calls to the backend
+│   ├── nginx.conf            serves the built site and forwards /api to the backend
+│   ├── Dockerfile            Node build stage, then nginx
+│   └── vite.config.ts        dev server; forwards /api to localhost:8000
+├── docker-compose.yml        starts backend and frontend together
+├── .env.example              template for your .env (placeholders only)
+└── .gitlab-ci.yml            backend tests and frontend lint and build on every push
 ```
-cd existing_repo
-git remote add origin https://gitlab.cse.unsw.edu.au/coursework/comp3900/26t3/capstone-projects/9900-h18i-almond/project.git
-git branch -M main
-git push -uf origin main
+
+## Quick start with Docker
+
+You need Git and Docker Desktop (running).
+
+1. Clone the repository and open a terminal in it.
+2. Create your environment file: `cp .env.example .env`
+3. Put the real `DATABASE_URL` in `.env` (ask Alex). The placeholder is enough to start the skeleton.
+4. Build and start both services: `docker compose up --build`
+
+| What | Address |
+|---|---|
+| Dashboard | http://localhost:8080 |
+| Gateway API | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
+| Health check | http://localhost:8000/health |
+
+The dashboard shows `Backend: ok (...)` when both containers are up. The frontend starts only after the backend passes its health check. Stop with `Ctrl+C`, then run `docker compose down`.
+
+## Environment variables
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `APP_ENV` | no (default `dev`) | `dev`, `test` or `prod` |
+| `DATABASE_URL` | yes | Supabase Postgres, Session pooler connection string. Compose refuses to start without it |
+
+`.env` is git-ignored and never committed. When you add a variable, read it in `backend/app/config.py` and add it to `.env.example` with a placeholder value.
+
+## Local development with hot reload
+
+Docker runs the production build. While you work on one part, run that part on your machine instead.
+
+Backend (Python 3.12):
+
+```sh
+cd backend
+python -m venv .venv
+.venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-## Integrate with your tools
+Run this way, the backend reads variables from your shell, not from `.env`; the defaults are enough for the skeleton.
 
-* [Set up project integrations](https://gitlab.cse.unsw.edu.au/coursework/comp3900/26t3/capstone-projects/9900-h18i-almond/project/-/settings/integrations)
+Frontend (Node 24):
 
-## Collaborate with your team
+```sh
+cd frontend
+npm ci
+npm run dev                       # http://localhost:5173; /api goes to localhost:8000
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Tests
 
-## Test and Deploy
+```sh
+cd backend
+pytest -q
+```
 
-Use the built-in continuous integration in GitLab.
+```sh
+cd frontend
+npm run lint
+npm run build
+```
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+Without Python on your machine, run the backend tests in Docker:
 
-***
+```sh
+docker compose run --rm --build backend sh -c "pip install -r requirements-dev.txt && pytest -q"
+```
 
-# Editing this README
+GitLab CI runs the same checks on every push (`.gitlab-ci.yml`).
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Adding code
 
-## Suggestions for a good README
+- New API endpoint: add a router module in `backend/app/routers/`, register it in `backend/app/main.py`, and add a test in `backend/tests/`.
+- New dashboard page or component: put it in `frontend/src/` and call the backend through `/api/...` (see `src/api.ts`), never through a hard-coded host.
+- New dependency: pin it in `requirements.txt`, or install it with `npm install <package>` and commit both `package.json` and `package-lock.json`.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Working together
 
-## Name
-Choose a self-explaining name for your project.
+- Work on a branch and open a merge request into `main`; do not push to `main` directly.
+- Never commit `.env`, keys or passwords.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Common problems
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+| Symptom | Fix |
+|---|---|
+| `required variable DATABASE_URL is missing a value` | Run `cp .env.example .env`, then set `DATABASE_URL` |
+| `port is already allocated` | Another container uses port 8000 or 8080: find it with `docker ps` and stop it |
+| Dashboard shows `Backend: unreachable` | Check `docker compose ps` and `docker compose logs backend` |
+| Code changes do not show up | Rebuild: `docker compose up --build` |
+| A shell script fails with `no such file or directory` | It has Windows (CRLF) line endings; `.gitattributes` keeps fresh checkouts on LF |

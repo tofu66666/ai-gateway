@@ -3,13 +3,24 @@ services:
     build: ./backend
     env_file: .env
     environment:
-      # Refuse to start, with this message, if DATABASE_URL is missing from .env.
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env (see README)}
+      APP_ENV: ${APP_ENV:-dev}
+      # Refuse to start, with this message, if supabase details are missing from .env.
+      SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL is not set in .env}
+      SUPABASE_KEY: ${SUPABASE_KEY:?SUPABASE_KEY is not set in .env}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
     ports:
       - "8000:8000"
     healthcheck:
       # python:3.12-slim has no curl, so check /health with Python.
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
       interval: 10s
       timeout: 3s
       retries: 5

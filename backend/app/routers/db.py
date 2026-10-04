@@ -3,9 +3,8 @@ from supabase import create_client, Client
 from app import config
 
 router = APIRouter(tags=["db"])
-supabase = create_client(
-    config.SUPABASE_URL, config.SUPABASE_KEY
-)
+supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+
 
 def controls_virtual_key(user_id, team_id):
     response = (
@@ -18,6 +17,7 @@ def controls_virtual_key(user_id, team_id):
     if response.data:
         return response.data[0]["can_create_key"]
 
+
 def get_user_id(token):
     try:
         response = supabase.auth.get_user(token)
@@ -25,11 +25,13 @@ def get_user_id(token):
     except Exception:
         return None
 
+
 def get_user_role(user_id):
     response = supabase.table("users").select("role").eq("id", user_id).execute()
     if response.data:
         return response.data[0]["role"]
     return None
+
 
 # TODO remove once we are done testing.
 @router.get("/db_testing")

@@ -31,13 +31,14 @@ def get_user_role(user_id):
         return response.data[0]["role"]
     return None
 
+# TODO remove once we are done testing.
 @router.get("/db_testing")
-def health():
+def db_testing():
     access_token = supabase.auth.sign_in_with_password(
         {
             "email": "test@test.com",
             "password": "testtest",
         }
     ).session.access_token
-    token = get_user_id(access_token)
-    return get_user_role(token)
+    user_id = get_user_id(access_token)
+    return get_user_role(user_id), user_id, access_token

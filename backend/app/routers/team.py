@@ -13,6 +13,10 @@ class TeamCreateRequest(BaseModel):
     owner_id: str | None = None
     budget_per_month: float | None = None
 
+class TeamChangeOwnerRequest(BaseModel):
+    team_id: str
+    new_owner_id: str
+
 
 @router.post("/team/create", status_code=status.HTTP_200_OK)
 def create_team(
@@ -80,6 +84,56 @@ def create_team(
         "owner_id": owner_id,
         "creator_role": role,
         "budget_per_month": payload.budget_per_month,
+    }
+
+@router.put("/team/change_owner", status_code=status.HTTP_200_OK)
+def change_owner(
+    payload: TeamChangeOwnerRequest,
+    response: Response,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    '''
+    Change the owner of a team. Only the current owner or an admin can change the owner.
+    Returns the team name and new owner_id.
+    '''
+    token = credentials.credentials if credentials else None
+    
+    if not token:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Missing or invalid bearer token"}
+
+    user_id = get_user_id(token)
+    if not user_id:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Invalid token"}
+
+    new_owner_exists = get_user_role(payload.new_owner_id)
+    if not new_owner_exists:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "New owner does not exist"}
+    
+    if supabase.table("teams").select("id").eq("name", payload.name).eq("owner_id", payload.new_owner_id).execute().data:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "Team with this name and owner already exists"}
+
+    role = get_user_role(user_id)
+    if role != "admin":
+        # Non-admin can only change owner if they are the current owner
+        team_entry = supabase.table("teams").select("owner_id").eq("id", payload.team_id).eq("owner_id", user_id).execute().data
+        if not team_entry:
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {"message": "Forbidden: only the current owner or an admin can change the owner"}
+   
+    try:
+        supabase.table("teams").update({"owner_id": payload.new_owner_id}).eq("id", payload.team_id).execute()
+    except:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to change team owner"}
+    
+    return {
+        "status": "ok",
+        "team_id": payload.team_id,
+        "new_owner_id": payload.new_owner_id,
     }
 
 

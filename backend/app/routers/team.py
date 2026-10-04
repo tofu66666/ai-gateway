@@ -51,13 +51,28 @@ def create_team(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "Team with this name and owner already exists"}
 
-    supabase.table("teams").insert(
-        {
-            "name": payload.name,
-            "owner_id": owner_id,
-            "budget_per_month": payload.budget_per_month,
-        }
-    ).execute()
+    try:
+        supabase.table("teams").insert(
+            {
+                "name": payload.name,
+                "owner_id": owner_id,
+                "budget_per_month": payload.budget_per_month,
+            }
+        ).execute()
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": f"Failed to create team: {str(e)}"}
+    try:
+        supabase.table("user_team_mappings").insert(
+            {
+                "user_id": user_id,
+                "team_id": supabase.table("teams").select("id").eq("name", payload.name).eq("owner_id", owner_id).execute().data[0]["id"],
+                "can_create_key": True,
+            }
+        ).execute()
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": f"Team created but failed to link user to team: {str(e)}"}
     
     return {
         "status": "ok",

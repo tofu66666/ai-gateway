@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, EmailStr
 from supabase import create_client
 from supabase_auth.errors import AuthError
 
 from app import config
+from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import get_user_role, supabase
 
 router = APIRouter(tags=["auth"])
@@ -151,3 +152,8 @@ def login(payload: LoginRequest, response: Response):
         },
     }
 
+
+@router.get("/me")
+def me(user: CurrentUser = Depends(get_current_user)):
+    """The signed-in user, from the bearer token."""
+    return {"id": user.id, "email": user.email, "role": user.role}

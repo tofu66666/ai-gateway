@@ -29,35 +29,22 @@ class ProjectCreateRequest(BaseModel):
     ]
 
 
-def can_create_project(
-    user_id: str,
-    role: str | None,
-    team_owner_id: str,
-) -> bool:
-    """Return whether a user may create a project for one particular team."""
-    return role == "admin" or user_id == team_owner_id
-
-
-def find_missing_model_ids(
+def has_missing_model_ids(
     requested_model_ids: list[UUID],
     model_rows: list[dict],
-) -> list[str]:
-    """Return requested IDs that were not found in the models table."""
-    # Store every model ID that exists in the database.
-    existing_model_ids = set()
-    for model_row in model_rows:
-        if model_row.get("id") is not None:
-            model_id = str(model_row["id"])
-            existing_model_ids.add(model_id)
+) -> bool:
+    """Return whether any requested model ID was not found in the models table."""
+    existing_model_ids = {
+        str(model_row["id"])
+        for model_row in model_rows
+        if model_row.get("id") is not None
+    }
 
-    # Store every requested ID that was not found in the database.
-    missing_model_ids = []
     for model_id in requested_model_ids:
-        model_id_as_text = str(model_id)
-        if model_id_as_text not in existing_model_ids:
-            missing_model_ids.append(model_id_as_text)
+        if str(model_id) not in existing_model_ids:
+            return True
 
-    return missing_model_ids
+    return False
 
 
 def get_team_by_id(team_id: UUID) -> dict | None:
@@ -143,8 +130,7 @@ def create_project(
         response.status_code = status.HTTP_404_NOT_FOUND
         return {"message": "Team not found"}
 
-    team_owner_id = str(team["owner_id"])
-    if not can_create_project(user_id, role, team_owner_id):
+    if role != "admin" and user_id != str(team["owner_id"]):
         response.status_code = status.HTTP_403_FORBIDDEN
         return {"message": "Forbidden: only the team owner or an admin can create projects"}
 
@@ -154,8 +140,7 @@ def create_project(
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to validate models"}
 
-    missing_model_ids = find_missing_model_ids(payload.model_ids, model_rows)
-    if missing_model_ids:
+    if has_missing_model_ids(payload.model_ids, model_rows):
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "One or more model IDs do not exist"}
 

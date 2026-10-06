@@ -4,16 +4,23 @@ from supabase import create_client
 from supabase_auth.errors import AuthError
 
 from app import config
-from app.routers.db import supabase
+from app.routers.db import get_user_role, supabase
 
 router = APIRouter(tags=["auth"])
 
 DEFAULT_ROLE = "user"
 DUPLICATE_EMAIL_CODES = {"user_already_exists", "email_exists"}
 DUPLICATE_EMAIL_MESSAGE = "An account with this email already exists"
+# One message for a wrong email or a wrong password, so login doesn't reveal which.
+INVALID_CREDENTIALS_MESSAGE = "Invalid email or password"
 
 
 class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
@@ -95,3 +102,52 @@ def register(payload: RegisterRequest, response: Response):
             else "Registration successful"
         ),
     }
+
+
+@router.post("/login")
+def login(payload: LoginRequest, response: Response):
+    """
+    Log in with email and password. Returns the Supabase session: send
+    access_token as "Authorization: Bearer <token>" on dashboard requests.
+    """
+    try:
+        result = new_auth_client().auth.sign_in_with_password(
+            {"email": payload.email, "password": payload.password}
+        )
+    except AuthError as e:
+        if e.code == "invalid_credentials":
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": INVALID_CREDENTIALS_MESSAGE}
+        # Supabase only says this once the password is correct.
+        if e.code == "email_not_confirmed":
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {"message": "Please confirm your email before logging in"}
+        error_status = getattr(e, "status", None)
+        if error_status and 400 <= error_status < 500:
+            response.status_code = error_status
+            return {"message": e.message}
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Login failed, please try again later"}
+
+    if result.user is None or result.session is None:
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return {"message": INVALID_CREDENTIALS_MESSAGE}
+
+    # Covers accounts whose users row wasn't created at registration.
+    ensure_user_row(result.user.id)
+
+    session = result.session
+    return {
+        "status": "ok",
+        "access_token": session.access_token,
+        "refresh_token": session.refresh_token,
+        "token_type": "bearer",
+        "expires_in": session.expires_in,
+        "expires_at": session.expires_at,
+        "user": {
+            "id": result.user.id,
+            "email": result.user.email,
+            "role": get_user_role(result.user.id),
+        },
+    }
+

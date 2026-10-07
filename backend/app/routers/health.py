@@ -17,7 +17,9 @@ def health():
             detail={
                 "status": "error - database not reachable",
                 "env": config.APP_ENV,
-                "database_configured": bool(config.SUPABASE_URL and config.SUPABASE_KEY),
+                "database_configured": bool(
+                    config.SUPABASE_URL and config.SUPABASE_KEY
+                ),
             },
         )
     return {

@@ -131,15 +131,18 @@ def change_owner(
     if not new_owner_exists:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "New owner does not exist"}
-
-    if (
+    team_name = (
+        supabase.table("teams").select("name").eq("id", payload.team_id).execute().data
+    )
+    existing_id = (
         supabase.table("teams")
         .select("id")
-        .eq("name", payload.name)
+        .eq("name", team_name[0]["name"])
         .eq("owner_id", payload.new_owner_id)
         .execute()
         .data
-    ):
+    )
+    if team_name and existing_id and existing_id[0]["id"] != payload.team_id:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "Team with this name and owner already exists"}
 
@@ -191,11 +194,11 @@ def get_teams(
         return {"message": "Invalid token"}
 
     role = get_user_role(user_id)
-    res = []
+    res = {}
     if role == "admin":
-        mappings = supabase.table("teams").select("name").execute().data
+        mappings = supabase.table("teams").select("name, id").execute().data
         for entry in mappings:
-            res.append(entry["name"])
+            res[entry["id"]] = entry["name"]
     else:
         mappings = (
             supabase.table("user_team_mappings")
@@ -210,5 +213,5 @@ def get_teams(
                 supabase.table("teams").select("name").eq("id", team_id).execute().data
             )
             if team_entry:
-                res.append(team_entry[0]["name"])
+                res[team_id] = team_entry[0]["name"]
     return res

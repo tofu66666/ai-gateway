@@ -52,7 +52,8 @@ create table if not exists virtual_keys (
   id          uuid primary key default gen_random_uuid(),
   project_id  uuid not null references projects(id),
   user_id     uuid not null references users(id),
-  hash        text not null,
+  hash        text not null unique,
+  prefix      text not null,
   expires_at  timestamptz not null default now() + interval '30 days',
   created_at  timestamptz not null default now()
 );

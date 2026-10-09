@@ -100,9 +100,19 @@ Open http://localhost:5173. Vite updates the page as you save and proxies `/api/
 
 Run `npm ci` after cloning or pulling lockfile changes. It installs the locked dependencies. To add a package, run `npm install <package>` in `frontend/` and commit both `package.json` and `package-lock.json`.
 
-Put backend calls in `frontend/src/api.ts` and use `/api/...` paths. Calling port 8000 directly bypasses the proxy and requires CORS configuration.
+Put backend calls in `frontend/src/api/` and use `/api/...` paths. Calling port 8000 directly bypasses the proxy and requires CORS configuration.
 
-The current page is in `frontend/src/App.tsx`; there is no client-side router yet.
+Where things go in `frontend/src/`:
+
+| Folder | Contents |
+|---|---|
+| `app/` | `router.tsx` (one line per page), providers, the not-found page |
+| `components/layout/` | the shell: sidebar, top bar, time window, user menu; `nav.ts` lists the sidebar pages and the roles that see them |
+| `components/ui/` | shadcn/ui components, generated: add one with `npx shadcn@latest add <name>` and keep it as generated |
+| `features/<area>/` | the pages and their parts, for example `features/teams/` |
+| `api/`, `auth/`, `lib/` | backend calls and types, the signed-in user, small helpers |
+
+A new page needs a route in `app/router.tsx` and, if it belongs in the sidebar, an entry in `components/layout/nav.ts`. Style with Tailwind classes; the 3.b colours are theme variables in `src/index.css` (`bg-primary`, `text-muted-foreground`, `text-success`, `text-warning`, `text-destructive`). Run `npm run format` before committing; it uses Prettier and sorts Tailwind classes.
 
 To update the static build on port 8080, run `docker compose up --build` from the repo root.
 
@@ -118,6 +128,7 @@ Run the frontend checks from `frontend/`:
 ```sh
 npm ci
 npm run lint
+npm run format:check
 npm run build
 ```
 
@@ -140,7 +151,7 @@ On macOS or Linux, use Python 3.12 to create the venv and replace `.venv\Scripts
 
 `pytest.ini` adds `backend/` to the import path, so tests can use `from app...`. `db.py` creates the Supabase client at import time; set test configuration and mock client creation before importing `app.main` in route tests.
 
-Backend coverage is currently limited to an import test. API responses and database calls are not covered yet.
+Backend tests mock the Supabase client: `test_auth.py` covers `/register` and `test_models.py` covers `/models`. Nothing runs against a real database yet.
 
 ## Git workflow
 

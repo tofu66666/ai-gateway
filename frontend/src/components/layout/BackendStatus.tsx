@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { getHealth, type Health } from './api'
-import AuthPage from './components/AuthPage'
+import { getHealth, type Health } from '@/api/health'
+import { cn } from '@/lib/utils'
 
-function App() {
+export function BackendStatus({ className }: { className?: string }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -13,7 +13,6 @@ function App() {
   }, [])
 
   let status = 'checking...'
-
   if (error) {
     status = `unreachable (${error})`
   } else if (health) {
@@ -22,14 +21,8 @@ function App() {
   }
 
   return (
-    <>
-      <AuthPage />
-
-      <p className="backend-status">
-        Backend: {status}
-      </p>
-    </>
+    <p className={cn('text-xs text-muted-foreground', className)}>
+      Backend: {status}
+    </p>
   )
 }
-
-export default App

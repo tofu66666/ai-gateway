@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getHealth, type Health } from './api'
+import AuthPage from './components/AuthPage'
 
 function App() {
   const [health, setHealth] = useState<Health | null>(null)
@@ -12,6 +13,7 @@ function App() {
   }, [])
 
   let status = 'checking...'
+
   if (error) {
     status = `unreachable (${error})`
   } else if (health) {
@@ -20,11 +22,13 @@ function App() {
   }
 
   return (
-    <main>
-      <h1>P127 AI Gateway</h1>
-      <p>Dashboard skeleton. Usage, keys, teams and the playground will be built here.</p>
-      <p>Backend: {status}</p>
-    </main>
+    <>
+      <AuthPage />
+
+      <p className="backend-status">
+        Backend: {status}
+      </p>
+    </>
   )
 }
 

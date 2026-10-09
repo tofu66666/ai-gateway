@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import db, health, project, team, auth, models
+from app.routers import db, health, project, team, auth, models, virtual_key
 
 app = FastAPI(title="P127 AI Gateway")
 
@@ -10,3 +10,4 @@ app.include_router(team.router)
 app.include_router(models.router)
 app.include_router(project.router)
 app.include_router(auth.router)
+app.include_router(virtual_key.router)

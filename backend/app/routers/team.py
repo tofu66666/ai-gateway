@@ -21,7 +21,8 @@ class TeamChangeOwnerRequest(BaseModel):
 
 class TeamUserMappingRequest(BaseModel):
     team_id: str
-    user_id: str
+    user_id: str | None = None
+    email: str | None = None
     can_create_key: bool = False
 
 
@@ -255,6 +256,14 @@ def upsert_user_team_mapping(
             return {
                 "message": "Forbidden: only the team owner or an admin can modify user-team mappings"
             }
+    if payload.user_id is None and payload.email is not None:
+        users = supabase.auth.admin.list_users(per_page=1000)
+        for user in users:
+            if user.email == payload.email:
+                payload.user_id = user.id
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": f"No user found with email {payload.email}"}
+
     try:
         supabase.table("user_team_mappings").upsert(
             {
@@ -300,6 +309,15 @@ def delete_user_team_mapping(
             return {
                 "message": "Forbidden: only the team owner or an admin can remove users from teams"
             }
+
+    if payload.user_id is None and payload.email is not None:
+        users = supabase.auth.admin.list_users(per_page=1000)
+        for user in users:
+            if user.email == payload.email:
+                payload.user_id = user.id
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": f"No user found with email {payload.email}"}
+
     try:
         (
             supabase.table("user_team_mappings")

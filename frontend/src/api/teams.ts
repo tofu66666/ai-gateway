@@ -3,6 +3,19 @@ export type Team = {
   name: string
 }
 
+export type CreateTeamRequest = {
+  name: string
+  budget_per_month: number | null
+}
+
+export type CreateTeamResponse = {
+  status: string
+  name: string
+  owner_id: string
+  creator_role: string
+  budget_per_month: number | null
+}
+
 function getAccessToken(): string {
   const token = localStorage.getItem('access_token')
 
@@ -44,4 +57,23 @@ export async function getTeams(): Promise<Team[]> {
     id,
     name,
   }))
+}
+
+export async function createTeam(
+  team: CreateTeamRequest,
+): Promise<CreateTeamResponse> {
+  const response = await fetch('/api/team/create', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getAccessToken()}`,
+    },
+    body: JSON.stringify(team),
+  })
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response))
+  }
+
+  return response.json()
 }

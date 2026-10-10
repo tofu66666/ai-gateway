@@ -1,9 +1,15 @@
 from fastapi import APIRouter
 from supabase import create_client, Client
+from supabase.client import ClientOptions
 from app import config
 
 router = APIRouter(tags=["db"])
-supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+
+options = ClientOptions(
+    auto_refresh_token=False,
+    persist_session=False,
+)
+supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY, options)
 
 
 def controls_virtual_key(user_id, team_id):

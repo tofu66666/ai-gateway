@@ -1,7 +1,71 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router'
+import { login, register } from '../api/auth'
 
 function AuthPage() {
-  const [isRegister, setIsRegister] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const isRegister = location.pathname === '/register'
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    setError('')
+    setMessage('')
+
+    if (isRegister && password !== confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+
+    try {
+      setLoading(true)
+
+      if (isRegister) {
+        const result = await register(email, password)
+
+        setMessage(result.message)
+
+        setPassword('')
+        setConfirmPassword('')
+      } else {
+        const result = await login(email, password)
+
+        localStorage.setItem('access_token', result.access_token)
+        localStorage.setItem('refresh_token', result.refresh_token)
+
+        navigate('/overview')
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : isRegister
+            ? 'Registration failed. Please try again.'
+            : 'Login failed. Please try again.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function switchMode() {
+    setError('')
+    setMessage('')
+    setPassword('')
+    setConfirmPassword('')
+
+    navigate(isRegister ? '/login' : '/register')
+  }
 
   return (
     <div className="auth-page">
@@ -16,23 +80,29 @@ function AuthPage() {
           </p>
         </div>
 
-        <form className="auth-form">
+        <form className="auth-form" onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="email">Email</label>
+
             <input
               id="email"
               type="email"
               placeholder="Enter your email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               required
             />
           </div>
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
+
             <input
               id="password"
               type="password"
               placeholder="Enter your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
               required
             />
           </div>
@@ -40,17 +110,32 @@ function AuthPage() {
           {isRegister && (
             <div className="form-group">
               <label htmlFor="confirm-password">Confirm Password</label>
+
               <input
                 id="confirm-password"
                 type="password"
                 placeholder="Confirm your password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
                 required
               />
             </div>
           )}
 
-          <button className="primary-button" type="submit">
-            {isRegister ? 'Create Account' : 'Sign In'}
+          {error && <p className="auth-error">{error}</p>}
+
+          {message && <p className="auth-success">{message}</p>}
+
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={loading}
+          >
+            {loading
+              ? 'Please wait...'
+              : isRegister
+                ? 'Create Account'
+                : 'Sign In'}
           </button>
         </form>
 
@@ -64,7 +149,7 @@ function AuthPage() {
           <button
             type="button"
             className="link-button"
-            onClick={() => setIsRegister(!isRegister)}
+            onClick={switchMode}
           >
             {isRegister ? 'Sign In' : 'Register'}
           </button>

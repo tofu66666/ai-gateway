@@ -39,6 +39,7 @@ export function TeamsPage() {
   const [projectName, setProjectName] = useState('')
   const [projectBudget, setProjectBudget] = useState('')
   const [projectError, setProjectError] = useState('')
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
 
   async function loadTeams() {
     try {
@@ -145,8 +146,16 @@ export function TeamsPage() {
             <div className="space-y-3">
               {teams.map((team) => (
                 <Card key={team.id} size="sm">
-                  <CardHeader>
+                  <CardHeader className="flex-row items-center justify-between">
                     <CardTitle>{team.name}</CardTitle>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedTeam(team)}
+                    >
+                      View Members
+                    </Button>
                   </CardHeader>
                 </Card>
               ))}
@@ -207,7 +216,11 @@ export function TeamsPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={creating || !name.trim()}>
+
+                  <Button
+                    type="submit"
+                    disabled={creating || !name.trim()}
+                  >
                     {creating ? 'Creating...' : 'Create Team'}
                   </Button>
                 </DialogFooter>
@@ -238,6 +251,7 @@ export function TeamsPage() {
                 required
               >
                 <option value="">Select team</option>
+
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>
                     {team.name}
@@ -267,7 +281,9 @@ export function TeamsPage() {
 
               <Button
                 type="submit"
-                disabled={creating || !projectTeam || !projectName.trim()}
+                disabled={
+                  creating || !projectTeam || !projectName.trim()
+                }
               >
                 {creating ? 'Creating...' : 'Create Project'}
               </Button>
@@ -275,6 +291,32 @@ export function TeamsPage() {
           )}
         </CardContent>
       </Card>
+
+      {selectedTeam && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{selectedTeam.name} — Members</CardTitle>
+            <CardDescription>
+              View the members of this team.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Users className="size-8 text-muted-foreground" />
+
+              <p className="font-medium">
+                No member data available
+              </p>
+
+              <p className="text-sm text-muted-foreground">
+                Team members will appear here when member data is
+                available.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

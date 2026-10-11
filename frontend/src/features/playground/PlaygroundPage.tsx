@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -23,6 +24,7 @@ export function PlaygroundPage() {
   const [team, setTeam] = useState('')
   const [project, setProject] = useState('')
   const [model, setModel] = useState('')
+  const [virtualKey, setVirtualKey] = useState('')
   const [prompt, setPrompt] = useState('')
 
   return (
@@ -38,7 +40,7 @@ export function PlaygroundPage() {
         <CardHeader>
           <CardTitle>New Request</CardTitle>
           <CardDescription>
-            Select a team, project and model, then enter your prompt.
+            Select a team, project and model, then enter your virtual key and prompt.
           </CardDescription>
         </CardHeader>
 
@@ -57,11 +59,8 @@ export function PlaygroundPage() {
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select team" />
                 </SelectTrigger>
-
                 <SelectContent>
-                  <SelectItem value="demo-team">
-                    Demo Team
-                  </SelectItem>
+                  <SelectItem value="demo-team">Demo Team</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -79,7 +78,6 @@ export function PlaygroundPage() {
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select project" />
                 </SelectTrigger>
-
                 <SelectContent>
                   <SelectItem value="demo-project">
                     Demo Project
@@ -98,7 +96,6 @@ export function PlaygroundPage() {
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
-
                 <SelectContent>
                   <SelectItem value="demo-model">
                     Demo Model
@@ -106,6 +103,17 @@ export function PlaygroundPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="virtual-key">Virtual API Key</Label>
+            <Input
+              id="virtual-key"
+              type="password"
+              value={virtualKey}
+              onChange={(event) => setVirtualKey(event.target.value)}
+              placeholder="Enter virtual API key"
+            />
           </div>
 
           <div className="space-y-2">
@@ -120,7 +128,13 @@ export function PlaygroundPage() {
 
           <div className="flex justify-end">
             <Button
-              disabled={!team || !project || !model || !prompt.trim()}
+              disabled={
+                !team ||
+                !project ||
+                !model ||
+                !virtualKey.trim() ||
+                !prompt.trim()
+              }
             >
               <Send />
               Send Request

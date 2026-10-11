@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Plus, Users } from 'lucide-react'
+import { Minus, Plus, Users } from 'lucide-react'
 
 import { createProject } from '@/api/projects'
 import { createTeam, getTeams } from '@/api/teams'
 import type { Team } from '@/api/teams'
+import { useAuth } from '@/auth/useAuth'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -26,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export function TeamsPage() {
+  const { user } = useAuth()
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -40,6 +42,14 @@ export function TeamsPage() {
   const [projectBudget, setProjectBudget] = useState('')
   const [projectError, setProjectError] = useState('')
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
+  const [memberTeam, setMemberTeam] = useState<Team | null>(null)
+  const [memberIdentifier, setMemberIdentifier] = useState('')
+  const [memberAction, setMemberAction] = useState<'add' | 'remove' | null>(
+    null,
+  )
+
+  const canManageMembers =
+    user.role === 'team_lead' || user.role === 'admin'
 
   async function loadTeams() {
     try {
@@ -106,6 +116,18 @@ export function TeamsPage() {
     }
   }
 
+  function openMemberAction(team: Team, action: 'add' | 'remove') {
+    setMemberTeam(team)
+    setMemberAction(action)
+    setMemberIdentifier('')
+  }
+
+  function closeMemberAction() {
+    setMemberTeam(null)
+    setMemberAction(null)
+    setMemberIdentifier('')
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -149,13 +171,37 @@ export function TeamsPage() {
                   <CardHeader className="flex-row items-center justify-between">
                     <CardTitle>{team.name}</CardTitle>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedTeam(team)}
-                    >
-                      View Members
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedTeam(team)}
+                      >
+                        View Members
+                      </Button>
+
+                      {canManageMembers && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label={`Add member to ${team.name}`}
+                            onClick={() => openMemberAction(team, 'add')}
+                          >
+                            <Plus />
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label={`Remove member from ${team.name}`}
+                            onClick={() => openMemberAction(team, 'remove')}
+                          >
+                            <Minus />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </CardHeader>
                 </Card>
               ))}
@@ -304,11 +350,7 @@ export function TeamsPage() {
           <CardContent>
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <Users className="size-8 text-muted-foreground" />
-
-              <p className="font-medium">
-                No member data available
-              </p>
-
+              <p className="font-medium">No member data available</p>
               <p className="text-sm text-muted-foreground">
                 Team members will appear here when member data is
                 available.
@@ -317,6 +359,66 @@ export function TeamsPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={memberAction !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeMemberAction()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {memberAction === 'add' ? 'Add Member' : 'Remove Member'}
+            </DialogTitle>
+
+            <DialogDescription>
+              {memberAction === 'add'
+                ? `Add an existing user to ${memberTeam?.name ?? 'this team'}.`
+                : `Remove a user from ${memberTeam?.name ?? 'this team'}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="member-identifier">
+                User email or ID
+              </Label>
+
+              <Input
+                id="member-identifier"
+                value={memberIdentifier}
+                onChange={(event) =>
+                  setMemberIdentifier(event.target.value)
+                }
+                placeholder="User email or ID"
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Member management will be enabled when the team member API
+              is available.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeMemberAction}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="button"
+              disabled={!memberIdentifier.trim()}
+            >
+              {memberAction === 'add' ? 'Add Member' : 'Remove Member'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

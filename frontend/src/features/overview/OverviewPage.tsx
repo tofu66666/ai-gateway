@@ -141,6 +141,53 @@ export function OverviewPage() {
           </p>
         </CardContent>
       </Card>
+
+      <div>
+        <h2 className="text-lg font-semibold">
+          Your Usage & Spending
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Your personal usage across all teams and projects.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardDescription>Total Requests</CardDescription>
+            <CardTitle className="text-2xl">—</CardTitle>
+          </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardDescription>Token Usage</CardDescription>
+            <CardTitle className="text-2xl">—</CardTitle>
+          </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardDescription>Total Spending</CardDescription>
+            <CardTitle className="text-2xl">—</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Spending by Model</CardTitle>
+          <CardDescription>
+            Your personal spending grouped by model.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
+            No personal usage data available
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

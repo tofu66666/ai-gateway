@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Plus, Users } from 'lucide-react'
 
+import { createProject } from '@/api/projects'
 import { createTeam, getTeams } from '@/api/teams'
 import type { Team } from '@/api/teams'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,11 @@ export function TeamsPage() {
   const [budget, setBudget] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [projectForm, setProjectForm] = useState(false)
+  const [projectTeam, setProjectTeam] = useState('')
+  const [projectName, setProjectName] = useState('')
+  const [projectBudget, setProjectBudget] = useState('')
+  const [projectError, setProjectError] = useState('')
 
   async function loadTeams() {
     try {
@@ -67,6 +73,32 @@ export function TeamsPage() {
     } catch (err) {
       setCreateError(
         err instanceof Error ? err.message : 'Failed to create team',
+      )
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setProjectError('')
+    setCreating(true)
+
+    try {
+      await createProject({
+        team_id: projectTeam,
+        name: projectName.trim(),
+        model_ids: [],
+        budget_per_month: projectBudget ? Number(projectBudget) : null,
+      })
+
+      setProjectName('')
+      setProjectBudget('')
+      setProjectTeam('')
+      setProjectForm(false)
+    } catch (err) {
+      setProjectError(
+        err instanceof Error ? err.message : 'Failed to create project',
       )
     } finally {
       setCreating(false)
@@ -182,6 +214,65 @@ export function TeamsPage() {
               </form>
             </DialogContent>
           </Dialog>
+
+          <Button
+            variant="outline"
+            onClick={() => setProjectForm(!projectForm)}
+            disabled={teams.length === 0}
+          >
+            <Plus />
+            Create Project
+          </Button>
+
+          {projectForm && (
+            <form
+              onSubmit={handleProjectSubmit}
+              className="space-y-3 rounded-lg border p-4"
+            >
+              <p className="font-medium">Create Project</p>
+
+              <select
+                className="w-full rounded-md border bg-background p-2 text-sm"
+                value={projectTeam}
+                onChange={(event) => setProjectTeam(event.target.value)}
+                required
+              >
+                <option value="">Select team</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+
+              <Input
+                placeholder="Project name"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                required
+              />
+
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Monthly budget (optional)"
+                value={projectBudget}
+                onChange={(event) => setProjectBudget(event.target.value)}
+              />
+
+              {projectError && (
+                <p className="text-sm text-destructive">{projectError}</p>
+              )}
+
+              <Button
+                type="submit"
+                disabled={creating || !projectTeam || !projectName.trim()}
+              >
+                {creating ? 'Creating...' : 'Create Project'}
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

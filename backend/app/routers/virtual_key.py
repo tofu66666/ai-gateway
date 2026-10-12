@@ -146,3 +146,46 @@ def create_api_key(
         "expires_at": created_key["expires_at"],
         "created_at": created_key["created_at"],
     }
+
+
+@router.get("/virtual_key/validate")
+def validate_virtual_key(
+    response: Response,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Validate a virtual key and reject expired keys with 403."""
+    token = credentials.credentials if credentials else None
+    if not token:
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return {"message": "Unauthorised"}
+
+    token_hash = hash_key(token)
+    result = supabase.table("virtual_keys").select("*").eq("hash", token_hash).execute()
+    result = result.data[0] if result.data else None
+    if result:
+        expires_at = result.get("expires_at")
+        if expires_at:
+            expires_at_value = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if expires_at_value.tzinfo is None:
+                expires_at_value = expires_at_value.replace(tzinfo=timezone.utc)
+
+            if expires_at_value <= datetime.now(timezone.utc):
+                response.status_code = status.HTTP_403_FORBIDDEN
+                return {"message": "Virtual key expired"}
+
+        team_id = (
+            supabase.table("projects")
+            .select("team_id")
+            .eq("id", result["project_id"])
+            .execute()
+        ).data[0]
+
+        return {
+            "project_id": result["project_id"],
+            "user_id": result["user_id"],
+            "expires_at": result["expires_at"],
+            "team_id": team_id["team_id"],
+        }
+
+    response.status_code = status.HTTP_401_UNAUTHORIZED
+    return {"message": "Unauthorised"}

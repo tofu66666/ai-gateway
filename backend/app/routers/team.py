@@ -19,6 +19,13 @@ class TeamChangeOwnerRequest(BaseModel):
     new_owner_id: str
 
 
+class TeamUserMappingRequest(BaseModel):
+    team_id: str
+    user_id: str | None = None
+    email: str | None = None
+    can_create_key: bool = False
+
+
 @router.post("/team/create", status_code=status.HTTP_200_OK)
 def create_team(
     payload: TeamCreateRequest,
@@ -215,3 +222,110 @@ def get_teams(
             if team_entry:
                 res[team_id] = team_entry[0]["name"]
     return res
+
+
+@router.put("/team/user", status_code=status.HTTP_200_OK)
+def upsert_user_team_mapping(
+    response: Response,
+    payload: TeamUserMappingRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials if credentials else None
+
+    if not token:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Missing or invalid bearer token"}
+
+    user_id = get_user_id(token)
+    if not user_id:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Invalid token"}
+
+    role = get_user_role(user_id)
+    if role != "admin":
+        is_owner = (
+            supabase.table("teams")
+            .select("owner_id")
+            .eq("id", payload.team_id)
+            .eq("owner_id", user_id)
+            .execute()
+            .data
+        )
+        if not is_owner:
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {
+                "message": "Forbidden: only the team owner or an admin can modify user-team mappings"
+            }
+    if payload.user_id is None and payload.email is not None:
+        users = supabase.auth.admin.list_users(per_page=1000)
+        for user in users:
+            if user.email == payload.email:
+                payload.user_id = user.id
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": f"No user found with email {payload.email}"}
+
+    try:
+        supabase.table("user_team_mappings").upsert(
+            {
+                "user_id": payload.user_id,
+                "team_id": payload.team_id,
+                "can_create_key": payload.can_create_key,
+            }
+        ).execute()
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": f"Failed to upsert user-team mapping: {str(e)}"}
+
+
+@router.delete("/team/user", status_code=status.HTTP_200_OK)
+def delete_user_team_mapping(
+    response: Response,
+    payload: TeamUserMappingRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials if credentials else None
+
+    if not token:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Missing or invalid bearer token"}
+
+    user_id = get_user_id(token)
+    if not user_id:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Invalid token"}
+
+    role = get_user_role(user_id)
+    if role != "admin":
+        is_owner = (
+            supabase.table("teams")
+            .select("owner_id")
+            .eq("id", payload.team_id)
+            .eq("owner_id", user_id)
+            .execute()
+            .data
+        )
+        if not is_owner:
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {
+                "message": "Forbidden: only the team owner or an admin can remove users from teams"
+            }
+
+    if payload.user_id is None and payload.email is not None:
+        users = supabase.auth.admin.list_users(per_page=1000)
+        for user in users:
+            if user.email == payload.email:
+                payload.user_id = user.id
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": f"No user found with email {payload.email}"}
+
+    try:
+        (
+            supabase.table("user_team_mappings")
+            .delete()
+            .eq("user_id", payload.user_id)
+            .eq("team_id", payload.team_id)
+            .execute()
+        )
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": f"Failed to delete user-team mapping: {str(e)}"}

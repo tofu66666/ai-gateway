@@ -5,6 +5,15 @@ export type Model = {
   alias: string
 }
 
+export type Project = {
+  id: string
+  team_id: string
+  name: string
+  model_ids: string[]
+  budget_per_month: number | null
+  spend_this_month: number
+}
+
 export type CreateProjectRequest = {
   team_id: string
   name: string
@@ -16,8 +25,15 @@ export function getModels() {
   return apiFetch<Model[]>('/models')
 }
 
-export async function createProject(project: CreateProjectRequest) {
-  await apiFetch('/projects', {
+// Projects in the caller's teams (all of them for an admin). The endpoint is
+// still to come; the shape follows the API draft.
+export function getProjects(teamId?: string) {
+  const query = teamId ? `?team_id=${encodeURIComponent(teamId)}` : ''
+  return apiFetch<Project[]>(`/projects${query}`)
+}
+
+export function createProject(project: CreateProjectRequest) {
+  return apiFetch<Project>('/projects', {
     method: 'POST',
     body: project,
   })

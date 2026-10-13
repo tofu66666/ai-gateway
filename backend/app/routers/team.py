@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, Response, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from app.routers.db import get_user_id, get_user_role, supabase
+from app.dependencies import CurrentUser, get_current_user
+from app.routers.db import get_user_role, supabase
 
 router = APIRouter(tags=["team"])
-security = HTTPBearer()
 
 
 class TeamCreateRequest(BaseModel):
@@ -30,23 +29,13 @@ class TeamUserMappingRequest(BaseModel):
 def create_team(
     payload: TeamCreateRequest,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """
     Create a new team. Returns the team name, owner_id, creator_role, and budget_per_month.
     """
-    token = credentials.credentials if credentials else None
-
-    if not token:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Missing or invalid bearer token"}
-
-    user_id = get_user_id(token)
-    if not user_id:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Invalid token"}
-
-    role = get_user_role(user_id)
+    user_id = current_user.id
+    role = current_user.role
     if role not in {"team_lead", "admin"}:
         response.status_code = status.HTTP_403_FORBIDDEN
         return {"message": "Forbidden: requires team_lead or admin role"}
@@ -117,23 +106,13 @@ def create_team(
 def change_owner(
     payload: TeamChangeOwnerRequest,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """
     Change the owner of a team. Only the current owner or an admin can change the owner.
     Returns the team name and new owner_id.
     """
-    token = credentials.credentials if credentials else None
-
-    if not token:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Missing or invalid bearer token"}
-
-    user_id = get_user_id(token)
-    if not user_id:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Invalid token"}
-
+    user_id = current_user.id
     new_owner_exists = get_user_role(payload.new_owner_id)
     if not new_owner_exists:
         response.status_code = status.HTTP_400_BAD_REQUEST
@@ -153,7 +132,7 @@ def change_owner(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "Team with this name and owner already exists"}
 
-    role = get_user_role(user_id)
+    role = current_user.role
     if role != "admin":
         # Non-admin can only change owner if they are the current owner
         team_entry = (
@@ -188,19 +167,14 @@ def change_owner(
 @router.get("/team", status_code=status.HTTP_200_OK)
 def get_teams(
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """
     Get a list of teams the user has access to.
     Returns a list: ["team_name1", "team_name2", ...]
     """
-    token = credentials.credentials if credentials else None
-    user_id = get_user_id(token)
-    if not token or not user_id:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Invalid token"}
-
-    role = get_user_role(user_id)
+    user_id = current_user.id
+    role = current_user.role
     res = {}
     if role == "admin":
         mappings = supabase.table("teams").select("name, id").execute().data
@@ -228,20 +202,10 @@ def get_teams(
 def upsert_user_team_mapping(
     response: Response,
     payload: TeamUserMappingRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    token = credentials.credentials if credentials else None
-
-    if not token:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Missing or invalid bearer token"}
-
-    user_id = get_user_id(token)
-    if not user_id:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Invalid token"}
-
-    role = get_user_role(user_id)
+    user_id = current_user.id
+    role = current_user.role
     if role != "admin":
         is_owner = (
             supabase.table("teams")
@@ -281,20 +245,10 @@ def upsert_user_team_mapping(
 def delete_user_team_mapping(
     response: Response,
     payload: TeamUserMappingRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    token = credentials.credentials if credentials else None
-
-    if not token:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Missing or invalid bearer token"}
-
-    user_id = get_user_id(token)
-    if not user_id:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Invalid token"}
-
-    role = get_user_role(user_id)
+    user_id = current_user.id
+    role = current_user.role
     if role != "admin":
         is_owner = (
             supabase.table("teams")

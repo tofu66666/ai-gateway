@@ -7,6 +7,7 @@ import { ErrorState } from '@/components/layout/ErrorState'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -21,10 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { AddMemberDialog } from './AddMemberDialog'
 
 type PermissionChange = { member: TeamMember; canCreateKey: boolean }
 
-// H18IALMOND-51: the team lead (or an admin) decides who may create keys.
+// H18IALMOND-51: the team lead (or an admin) decides who is in the team and
+// who may create keys.
 export function MembersCard({ teamId }: { teamId: string }) {
   const user = useCurrentUser()
   const members = useTeamMembers(teamId)
@@ -64,6 +67,14 @@ export function MembersCard({ teamId }: { teamId: string }) {
         <CardDescription>
           Who is in this team, and who may create keys for its projects.
         </CardDescription>
+        <CardAction>
+          <AddMemberDialog
+            teamId={teamId}
+            memberEmails={
+              members.data?.map((member) => member.email.toLowerCase()) ?? []
+            }
+          />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {members.isPending && (

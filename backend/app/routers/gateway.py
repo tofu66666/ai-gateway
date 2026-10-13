@@ -1,13 +1,14 @@
-
+import time
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import JSONResponse
 
-from app import config
+from app import config, request_log
 from app.routers.db import supabase
-from app.routers.virtual_key import hash_key
+from app.routers.virtual_key import validate_virtual_key
 
 
 router=APIRouter(tags=["gateway"])
@@ -49,39 +50,37 @@ def get_model_by_alias(alias: str) -> dict | None:
     return rows[0] if rows else None
     # rows[0] is dictionary
 
-def find_key(raw_key:str)->dict | None:
-    # Return {user_id, project_id, model_ids}
+# By using validate virtual key, it substitui find_key and verify_key
+# find_key->find_project_model_ids
+
+def get_proj_m_ids(project_id:str)->list:
     rows=(
-        supabase.table("virtual_keys")
-        .select("user_id, project_id, expires_at, projects(model_ids)")
-        .eq("hash", hash_key(raw_key))
+        supabase.table("projects")
+        .select("model_ids")
+        .eq("id", project_id)
         .limit(1)
         .execute()
         .data
     )
-    if not rows:
-        return None
-    row=rows[0] 
-    if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
-        # Supabase use ISO8601 for date
-        return None
-    return{
-        "user_id":row["user_id"],
-        "project_id":row["project_id"],
-        "model_ids":row["projects"]["model_ids"],
-    }
+    if rows:
+        return rows[0]["model_ids"] or []
+    else:
+        return []
 
-def verify_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
-    # Verify if the request carries a valid virtual key
-    key=find_key(credentials.credentials)
-    if key is None:
-        raise HTTPException(401, "Invalid or expired virtual key")
-        # What is better? virtual key or API key? user virtual key?
-    return key
+def get_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
+    response=Response()
+    vk=validate_virtual_key(response, credentials)
+    if response.status_code !=200:
+        raise HTTPException(response.status_code, vk["message"])
+    return {
+        "user_id": vk["user_id"],
+        "project_id": vk["project_id"],
+        "model_ids": get_proj_m_ids(vk["project_id"])
+    }
 
 
 @router.post("/chat/completions")
-def chat_completions(body: dict, key: dict=Depends(verify_key)):
+def chat_completions(body: dict, key: dict=Depends(get_key)):
     alias=body.get("model")
     if not alias:
         raise HTTPException(400, "'model' is required")
@@ -95,9 +94,39 @@ def chat_completions(body: dict, key: dict=Depends(verify_key)):
     if str(row["id"]) not in {str(i) for i in key["model_ids"]}:
         raise HTTPException(403, f"Model '{alias}' is not usable for this project")
 
-    upstream = call_prov(row["provider"], {**body, "model": row["model"]})
     
-    # Put the log for requests row (key["user_id"], key["project_id"], row["id"], usage, latency, status)
+    # Round Trip Time Latency using high resolution performance counter time.perf_counter()
+    started=time.perf_counter()
+    # Log for requests row (key["user_id"], key["project_id"], row["id"], usage, latency, status)\
+    try:
+        upstream = call_prov(row["provider"], {**body, "model": row["model"]})
     
-    return upstream.json()
+    # Timeouts(504) and network failures(502)
+    except httpx.TimeoutException:
+        status_code, payload=504, {"error":{"message": "Provider timed out"}}
+    except httpx.HTTPError:
+        status_code, payload=502, {"error":{"message": "Could not reach the provider"}}
+    
+    else:
+        status_code=upstream.status_code
+        try:
+            payload=upstream.json()
+        except ValueError:
+            # If it is not a standard JSON
+            payload={"error":{"message": "Provider returned a non-JSON response"}}
+            # For the case that it returns 200 OK or 302 found with a non-JSON file.
+            if status_code < 400:
+                status_code = 502
+    # perf_counter is second, to change to ms *1000
+    latency_ms=int((time.perf_counter()-started)*1000)
+
+    request_log.log_request(
+        key=key,
+        model=row,
+        payload=payload,
+        status_code=status_code,
+        latency_ms=latency_ms,
+    )
+    
+    return JSONResponse(payload, status_code=status_code)
 

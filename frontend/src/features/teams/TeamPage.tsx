@@ -23,8 +23,9 @@ import {
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
 import { CreateProjectDialog } from './CreateProjectDialog'
+import { MembersCard } from './MembersCard'
 
-// One team: its projects and, later, its members (H18IALMOND-51, -52).
+// One team: its projects and its members (H18IALMOND-51, -52).
 export function TeamPage() {
   const { teamId = '' } = useParams()
   const teams = useTeams()
@@ -41,7 +42,7 @@ export function TeamPage() {
         </Button>
         <h1 className="text-2xl font-semibold">{team?.name ?? 'Team'}</h1>
         <p className="text-muted-foreground">
-          The team's projects, with the models and budget each one allows.
+          The team's projects and the people who use them.
         </p>
       </div>
 
@@ -53,7 +54,10 @@ export function TeamPage() {
           You are not a member of this team, or it no longer exists.
         </EmptyState>
       ) : (
-        <ProjectsCard teamId={teamId} />
+        <>
+          <ProjectsCard teamId={teamId} />
+          <MembersCard teamId={teamId} />
+        </>
       )}
     </div>
   )

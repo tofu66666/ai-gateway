@@ -34,3 +34,27 @@ export function createTeam(team: CreateTeamRequest) {
     body: team,
   })
 }
+
+export type TeamMember = {
+  user_id: string
+  email: string
+  can_create_key: boolean
+  is_owner: boolean
+}
+
+export type TeamMemberChange = {
+  team_id: string
+  user_id?: string
+  email?: string
+  can_create_key: boolean
+}
+
+// The endpoint is still to come (H18IALMOND-51).
+export function getTeamMembers(teamId: string) {
+  return apiFetch<TeamMember[]>(`/team/${encodeURIComponent(teamId)}/users`)
+}
+
+// Adds the person to the team, or sets their key permission if already in it.
+export function saveTeamMember(change: TeamMemberChange) {
+  return apiFetch<null>('/team/user', { method: 'PUT', body: change })
+}

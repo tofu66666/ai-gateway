@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { login, register } from '../api/auth'
-import { saveSession } from '../api/session'
+import { useAuth } from '../auth/useAuth'
 
 function AuthPage() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { login, register } = useAuth()
 
   const isRegister = location.pathname === '/register'
 
@@ -39,13 +39,7 @@ function AuthPage() {
         setPassword('')
         setConfirmPassword('')
       } else {
-        const result = await login(email, password)
-
-        saveSession({
-          accessToken: result.access_token,
-          expiresAt: result.expires_at,
-          user: result.user,
-        })
+        await login(email, password)
 
         navigate('/overview')
       }

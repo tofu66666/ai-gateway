@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { FolderKanban } from 'lucide-react'
 
-import { useAuth } from '@/auth/useAuth'
+import { useCurrentUser } from '@/auth/useAuth'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -30,7 +30,7 @@ import { timeWindows, useTimeWindow } from '@/lib/time-window'
 import type { TimeWindow } from '@/lib/time-window'
 
 export function OverviewPage() {
-  const { user } = useAuth()
+  const user = useCurrentUser()
   const { timeWindow, setTimeWindow } = useTimeWindow()
   const [model, setModel] = useState('all')
   const [team, setTeam] = useState('all')

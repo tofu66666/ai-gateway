@@ -1,6 +1,6 @@
 import { ChevronDown, CircleUser, LogOut } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { useAuth } from '@/auth/useAuth'
+import { useAuth, useCurrentUser } from '@/auth/useAuth'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -13,7 +13,8 @@ import {
 import { roleLabels } from './nav'
 
 export function UserMenu() {
-  const { user, signOut } = useAuth()
+  const user = useCurrentUser()
+  const { signOut } = useAuth()
   const navigate = useNavigate()
 
   function handleSignOut() {

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router'
+import { RequireAuth } from '@/auth/RequireAuth'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthRoute } from '@/features/auth/AuthRoute'
 import { ModelsPage } from '@/features/models/ModelsPage'
@@ -15,15 +16,17 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<AuthRoute />} />
       <Route path="/register" element={<AuthRoute />} />
-      <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/overview" replace />} />
-        <Route path="overview" element={<OverviewPage />} />
-        <Route path="playground" element={<PlaygroundPage />} />
-        <Route path="teams" element={<TeamsPage />} />
-        <Route path="teams/:teamId" element={<TeamPage />} />
-        <Route path="models" element={<ModelsPage />} />
-        <Route path="requests" element={<RequestsPage />} />
-        <Route path="*" element={<NotFoundPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/overview" replace />} />
+          <Route path="overview" element={<OverviewPage />} />
+          <Route path="playground" element={<PlaygroundPage />} />
+          <Route path="teams" element={<TeamsPage />} />
+          <Route path="teams/:teamId" element={<TeamPage />} />
+          <Route path="models" element={<ModelsPage />} />
+          <Route path="requests" element={<RequestsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
       </Route>
     </Routes>
   )

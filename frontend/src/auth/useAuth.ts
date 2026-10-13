@@ -1,11 +1,19 @@
-import type { User } from '@/api/types'
-
-// Placeholder until foundation MR 2 adds AuthProvider, /login and /me.
-const devUser: User = { id: 'dev', email: 'dev@example.com', role: 'admin' }
+import { useContext } from 'react'
+import { AuthContext } from './auth-context'
 
 export function useAuth() {
-  return {
-    user: devUser,
-    signOut: () => {},
+  const auth = useContext(AuthContext)
+  if (!auth) {
+    throw new Error('useAuth must be used inside AuthProvider')
   }
+  return auth
+}
+
+// For pages behind RequireAuth, where someone is always signed in.
+export function useCurrentUser() {
+  const { user } = useAuth()
+  if (!user) {
+    throw new Error('useCurrentUser must be used behind RequireAuth')
+  }
+  return user
 }

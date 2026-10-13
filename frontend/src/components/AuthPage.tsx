@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { login, register } from '../api/auth'
+import { saveSession } from '../api/session'
 
 function AuthPage() {
   const location = useLocation()
@@ -40,8 +41,11 @@ function AuthPage() {
       } else {
         const result = await login(email, password)
 
-        localStorage.setItem('access_token', result.access_token)
-        localStorage.setItem('refresh_token', result.refresh_token)
+        saveSession({
+          accessToken: result.access_token,
+          expiresAt: result.expires_at,
+          user: result.user,
+        })
 
         navigate('/overview')
       }

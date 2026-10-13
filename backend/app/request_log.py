@@ -68,8 +68,9 @@ def log_request(
     payload: object,
     status_code: int,
     latency_ms: int,
-) -> None:
+) -> str | None:
     # Request logging and accumlated cost caclulation
+    request_id=None
     try:
         record=build_record(
             key=key,
@@ -78,27 +79,22 @@ def log_request(
             status_code=status_code,
             latency_ms=latency_ms,
         )
-        supabase.table("requests").insert(record).execute()
+        res=supabase.table("requests").insert(record).execute()
+        if res.data:
+            request_id=res.data[0]["id"]
+        
         # If there were a cost, update the spend_this_month
         cost=record["cost"]
         if cost>0:
-            project_id=record["project_id"]
-            res=(
-                supabase.table("projects")
-                .select("spend_this_month")
-                .eq("id", project_id)
-                .limit(1)
-                .execute()
-            )
-            if res.data: 
-                current_spend=float(res.data[0].get("spend_this_month",0) or 0)
-                new_spend=current_spend+cost
-                (supabase.table("projects").update({"spend_this_month":new_spend})
-                .eq("id", project_id)
-                .execute()
-                )
+            # Becaus race condition, SQL function add_spend is used here
+            supabase.rpc(
+                "add_spend",
+                {"p_id": record["project_id"], "amount": cost},
+            ).execute()
+        
     except Exception:
         logger.exception("Failed to log request or update project spend")
+    return request_id
 
 
 

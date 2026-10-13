@@ -120,13 +120,20 @@ def chat_completions(body: dict, key: dict=Depends(get_key)):
     # perf_counter is second, to change to ms *1000
     latency_ms=int((time.perf_counter()-started)*1000)
 
-    request_log.log_request(
+    request_id=request_log.log_request(
         key=key,
         model=row,
         payload=payload,
         status_code=status_code,
         latency_ms=latency_ms,
     )
-    
-    return JSONResponse(payload, status_code=status_code)
+
+    # The clien asked for tha alias, so answer with the alias
+    if isinstance(payload, dict) and "model" in payload:
+        payload["model"]=alias
+    if request_id:
+        headers={"X-request-ID":str(request_id)}
+    else:
+        headers={}
+    return JSONResponse(payload, status_code=status_code, headers=headers)
 

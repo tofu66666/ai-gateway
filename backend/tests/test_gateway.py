@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 from fastapi.security import HTTPAuthorizationCredentials
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 import pytest
 import httpx
 
@@ -233,3 +233,63 @@ def test_get_proj_m_ids_missing_project(monkeypatch):
 def test_get_proj_m_ids_null_column(monkeypatch):
     monkeypatch.setattr(gateway, "supabase", fake_supabase([{"model_ids":None}]))
     assert gateway.get_proj_m_ids("p1")==[]
+
+
+# check response model is alias and request_id header
+def test_response_model_alias_request_id(monkeypatch):
+    fake_auth(monkeypatch)
+    monkeypatch.setattr(request_log, "log_request", lambda **args:"req1")
+    fake_provider(monkeypatch, response=httpx.Response(200, json={**USAGE_REPLY, "model":"gemini-3.5-flash-lite"}))
+
+    r=post()
+
+    assert r.status_code==200
+    assert r.json()["model"]=="mq"
+    assert r.headers["X-Request-ID"]=="req1"
+
+# check there is no request id header when logging fails
+
+def test_response_model_no_req_id_logging_failure(monkeypatch):
+    fake_auth(monkeypatch)
+    monkeypatch.setattr(request_log, "log_request", lambda **args: None)
+    fake_provider(monkeypatch, response=httpx.Response(200, json={**USAGE_REPLY}))
+
+    r=post()
+
+    assert r.status_code==200
+    assert "X-Request-ID" not in r.headers
+    assert "model" not in r.json() #no model key in the reply -> nothing added
+
+# error response with request id without model
+def test_logs_error_res_with_req_id_no_model(monkeypatch):
+    fake_auth(monkeypatch)
+    monkeypatch.setattr(request_log, "log_request", lambda **args: "req2")
+    fake_provider(monkeypatch, response=httpx.Response(429, json={"error":{"message":"quota"}}))
+
+    r=post()
+
+    assert r.status_code==429
+    assert r.headers["X-Request-ID"]=="req2"
+    assert "model" not in r.json() 
+
+# check get_model_by_alias
+def test_get_model_by_alias(monkeypatch):
+    row={
+        "id":"m1",
+        "provider":"google",
+        "model": "gemini-3.5-flash-lite",
+        "price_per_1m_input": 0.1, 
+        "price_per_1m_output": 0.4
+    }
+    fake=fake_supabase([row])
+    monkeypatch.setattr(gateway,"supabase",fake)
+
+    assert gateway.get_model_by_alias("mq")==row
+    assert fake.table.return_value.select.return_value.eq.call_args==call("alias", "mq")
+
+# Unknown alias
+def test_get_model_by_alias_unknown(monkeypatch):
+    monkeypatch.setattr(gateway,"supabase",fake_supabase([]))
+    
+    assert gateway.get_model_by_alias("nope") is None
+

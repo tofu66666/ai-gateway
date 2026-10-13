@@ -8,6 +8,7 @@ function AuthPage() {
   const { login, register } = useAuth()
 
   const isRegister = location.pathname === '/register'
+  const expired = new URLSearchParams(location.search).has('expired')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -39,9 +40,8 @@ function AuthPage() {
         setPassword('')
         setConfirmPassword('')
       } else {
+        // AuthRoute then moves the person on to the page they asked for.
         await login(email, password)
-
-        navigate('/overview')
       }
     } catch (err) {
       setError(
@@ -120,9 +120,15 @@ function AuthPage() {
             </div>
           )}
 
-          {error && <p className="auth-error">{error}</p>}
+          {expired && !error && (
+            <p className="auth-error text-sm text-destructive">
+              Your session has expired. Please sign in again.
+            </p>
+          )}
 
-          {message && <p className="auth-success">{message}</p>}
+          {error && <p className="auth-error text-sm text-destructive">{error}</p>}
+
+          {message && <p className="auth-success text-sm text-success">{message}</p>}
 
           <button
             className="primary-button"

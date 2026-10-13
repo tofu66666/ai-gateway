@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router'
 import type { Role } from '@/api/types'
 import { cn } from '@/lib/utils'
-import { BackendStatus } from './BackendStatus'
 import { navItemsFor } from './nav'
 
 export function Sidebar({ role }: { role: Role }) {
@@ -28,7 +27,6 @@ export function Sidebar({ role }: { role: Role }) {
           </NavLink>
         ))}
       </nav>
-      <BackendStatus className="border-t px-5 py-3" />
     </aside>
   )
 }

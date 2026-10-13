@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -21,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
+import { CreateProjectDialog } from './CreateProjectDialog'
 
 // One team: its projects and, later, its members (H18IALMOND-51, -52).
 export function TeamPage() {
@@ -70,6 +72,9 @@ function ProjectsCard({ teamId }: { teamId: string }) {
           Keys are issued per project, and its requests count against its
           budget.
         </CardDescription>
+        <CardAction>
+          <CreateProjectDialog teamId={teamId} />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {projects.isPending && (

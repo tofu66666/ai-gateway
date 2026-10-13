@@ -5,6 +5,7 @@ import { getTeams } from './teams'
 // Invalidate a key after changing what it lists, so every page refreshes.
 export const queryKeys = {
   teams: ['teams'],
+  allProjects: ['projects'],
   projects: (teamId?: string) => ['projects', teamId ?? 'all'],
   models: ['models'],
 }

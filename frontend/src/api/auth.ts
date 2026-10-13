@@ -1,3 +1,6 @@
+import { apiFetch } from './client'
+import type { User } from './types'
+
 export type RegisterResponse = {
   status: string
   user_id: string
@@ -13,57 +16,24 @@ export type LoginResponse = {
   token_type: string
   expires_in: number
   expires_at: number
-  user: {
-    id: string
-    email: string
-    role: string
-  }
+  user: User
 }
 
-export async function register(
-  email: string,
-  password: string,
-): Promise<RegisterResponse> {
-  const response = await fetch('/api/register', {
+export function register(email: string, password: string) {
+  return apiFetch<RegisterResponse>('/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email,
-      password,
-    }),
+    body: { email, password },
   })
-
-  const data = await response.json()
-
-  if (!response.ok) {
-    throw new Error(data.message || `Registration failed (${response.status})`)
-  }
-
-  return data
 }
 
-export async function login(
-  email: string,
-  password: string,
-): Promise<LoginResponse> {
-  const response = await fetch('/api/login', {
+export function login(email: string, password: string) {
+  return apiFetch<LoginResponse>('/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email,
-      password,
-    }),
+    body: { email, password },
   })
+}
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    throw new Error(data.message || `Login failed (${response.status})`)
-  }
-
-  return data
+// The signed-in user, from the stored token.
+export function getMe() {
+  return apiFetch<User>('/me')
 }

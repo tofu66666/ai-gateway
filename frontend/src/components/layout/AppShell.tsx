@@ -1,11 +1,11 @@
 import { Outlet } from 'react-router'
-import { useAuth } from '@/auth/useAuth'
+import { useCurrentUser } from '@/auth/useAuth'
 import { Sidebar } from './Sidebar'
 import { TimeWindowProvider } from './TimeWindowProvider'
 import { TopBar } from './TopBar'
 
 export function AppShell() {
-  const { user } = useAuth()
+  const user = useCurrentUser()
 
   return (
     <TimeWindowProvider>

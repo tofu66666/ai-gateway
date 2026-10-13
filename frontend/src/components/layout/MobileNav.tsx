@@ -1,6 +1,6 @@
 import { Menu } from 'lucide-react'
 import { Link } from 'react-router'
-import { useAuth } from '@/auth/useAuth'
+import { useCurrentUser } from '@/auth/useAuth'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
 import { navItemsFor } from './nav'
 
 export function MobileNav() {
-  const { user } = useAuth()
+  const user = useCurrentUser()
 
   return (
     <DropdownMenu>

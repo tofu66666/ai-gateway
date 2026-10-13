@@ -110,9 +110,11 @@ Where things go in `frontend/src/`:
 | `components/layout/` | the shell: sidebar, top bar, time window, user menu; `nav.ts` lists the sidebar pages and the roles that see them |
 | `components/ui/` | shadcn/ui components, generated: add one with `npx shadcn@latest add <name>` and keep it as generated |
 | `features/<area>/` | the pages and their parts, for example `features/teams/` |
-| `api/`, `auth/`, `lib/` | backend calls and types, the signed-in user, small helpers |
+| `api/`, `auth/`, `lib/` | backend calls and types, the signed-in user and route guards, small helpers |
 
 A new page needs a route in `app/router.tsx` and, if it belongs in the sidebar, an entry in `components/layout/nav.ts`. Style with Tailwind classes; the 3.b colours are theme variables in `src/index.css` (`bg-primary`, `text-muted-foreground`, `text-success`, `text-warning`, `text-destructive`). Run `npm run format` before committing; it uses Prettier and sorts Tailwind classes.
+
+Call the backend with `apiFetch` from `api/client.ts`. It adds the signed-in token, turns an error body into an `ApiError` with the server's message, and signs the person out when the backend rejects the token. Read the signed-in user with `useAuth()`, or `useCurrentUser()` on pages behind sign-in. To limit routes to some roles, wrap them in `RequireRole` in `app/router.tsx`.
 
 To update the static build on port 8080, run `docker compose up --build` from the repo root.
 

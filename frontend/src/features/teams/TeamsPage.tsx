@@ -5,7 +5,7 @@ import { Minus, Plus, Users } from 'lucide-react'
 import { createProject } from '@/api/projects'
 import { createTeam, getTeams } from '@/api/teams'
 import type { Team } from '@/api/teams'
-import { useAuth } from '@/auth/useAuth'
+import { useCurrentUser } from '@/auth/useAuth'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -27,7 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export function TeamsPage() {
-  const { user } = useAuth()
+  const user = useCurrentUser()
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

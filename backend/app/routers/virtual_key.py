@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, BaseModel
 
-from app.routers.db import controls_virtual_key, get_user_id, supabase
+from app.dependencies import CurrentUser, get_current_user
+from app.routers.db import controls_virtual_key, supabase
 
 router = APIRouter(tags=["virtual_key"])
 security = HTTPBearer()
@@ -82,17 +83,12 @@ def insert_key(key_data: dict) -> dict | None:
 def create_api_key(
     payload: CreateKeyRequest,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """
     Create a virtual key for a project. The raw key is in this response only;
     the platform stores just its SHA-256 hash and a short display prefix.
     """
-    user_id = get_user_id(credentials.credentials)
-    if not user_id:
-        response.status_code = status.HTTP_401_UNAUTHORIZED
-        return {"message": "Invalid token"}
-
     expires_at = payload.expires_at
     if expires_at is not None and expires_at <= datetime.now(timezone.utc):
         response.status_code = status.HTTP_400_BAD_REQUEST
@@ -100,7 +96,7 @@ def create_api_key(
 
     try:
         team = get_project_team(payload.project_id)
-        allowed = team is not None and can_create_key(user_id, team)
+        allowed = team is not None and can_create_key(user.id, team)
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to look up project"}
@@ -118,7 +114,7 @@ def create_api_key(
     raw_key = generate_key()
     key_data = {
         "project_id": str(payload.project_id),
-        "user_id": user_id,
+        "user_id": user.id,
         "hash": hash_key(raw_key),
         "prefix": raw_key[:DISPLAY_PREFIX_LENGTH],
     }

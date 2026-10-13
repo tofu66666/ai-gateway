@@ -6,7 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from supabase_auth.errors import AuthApiError
 
+from app import dependencies
 from app.main import app
 from app.routers import virtual_key
 from app.routers.virtual_key import KEY_MARKER, generate_key, hash_key
@@ -31,7 +33,16 @@ def db(monkeypatch):
             **key_data,
         }
 
-    monkeypatch.setattr(virtual_key, "get_user_id", lambda token: state["user_id"])
+    def get_user(token):
+        # A user_id of None stands for a token Supabase rejects.
+        if state["user_id"] is None:
+            raise AuthApiError("invalid JWT", 403, "bad_jwt")
+        return SimpleNamespace(user=SimpleNamespace(id=state["user_id"], email=None))
+
+    auth_client = MagicMock()
+    auth_client.auth.get_user.side_effect = get_user
+    monkeypatch.setattr(dependencies, "supabase", auth_client)
+    monkeypatch.setattr(dependencies, "get_user_role", lambda user_id: "member")
     monkeypatch.setattr(virtual_key, "get_project_team", lambda project_id: state["team"])
     monkeypatch.setattr(
         virtual_key, "controls_virtual_key", lambda user_id, team_id: state["can_create_key"]

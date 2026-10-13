@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Minus, Plus, Users } from 'lucide-react'
+import { Link } from 'react-router'
 
 import { createProject } from '@/api/projects'
 import { createTeam, getTeams } from '@/api/teams'
@@ -169,7 +170,11 @@ export function TeamsPage() {
               {teams.map((team) => (
                 <Card key={team.id} size="sm">
                   <CardHeader className="flex-row items-center justify-between">
-                    <CardTitle>{team.name}</CardTitle>
+                    <CardTitle>
+                      <Link to={`/teams/${team.id}`} className="hover:underline">
+                        {team.name}
+                      </Link>
+                    </CardTitle>
 
                     <div className="flex items-center gap-2">
                       <Button

@@ -38,6 +38,8 @@ create table if not exists user_team_mappings (
   created_at      timestamptz not null default now()
 );
 
+ALTER TABLE user_team_mappings ADD CONSTRAINT unique_mapping UNIQUE (user_id, team_id);
+
 create table if not exists projects (
   id                 uuid primary key default gen_random_uuid(),
   team_id            uuid not null references teams(id),

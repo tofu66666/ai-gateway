@@ -10,6 +10,7 @@ from app.main import app
 from app.routers import team
 
 AUTH = {"Authorization": "Bearer good-token"}
+EMAILS = {"lead-1": "lead@example.com", "member-1": "member@example.com"}
 client = TestClient(app)
 
 ENDPOINTS = [
@@ -18,6 +19,7 @@ ENDPOINTS = [
     ("get", "/team", None),
     ("put", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("delete", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
+    ("get", "/team/team-1/users", None),
 ]
 
 
@@ -113,3 +115,66 @@ def test_non_owner_cannot_change_owner(db, monkeypatch):
 
     assert response.status_code == 403
     db["supabase"].table.return_value.update.assert_not_called()
+
+
+def set_team(db, owner_id, mappings):
+    # The owner lookup runs first, then the team's membership rows.
+    by_one_field = db["supabase"].table.return_value.select.return_value.eq
+    by_one_field.return_value.execute.side_effect = [
+        SimpleNamespace(data=[{"owner_id": owner_id}]),
+        SimpleNamespace(data=mappings),
+    ]
+    db["supabase"].auth.admin.get_user_by_id.side_effect = lambda user_id: SimpleNamespace(
+        user=SimpleNamespace(id=user_id, email=EMAILS[user_id])
+    )
+    return by_one_field
+
+
+def test_member_sees_members_and_their_key_permission(db):
+    db["user_id"], db["role"] = "member-1", "member"
+    mappings = [
+        {"user_id": "lead-1", "can_create_key": True},
+        {"user_id": "member-1", "can_create_key": False},
+    ]
+    by_one_field = set_team(db, "lead-1", mappings)
+    # The caller doesn't own the team, so their membership is checked.
+    by_one_field.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[{"user_id": "member-1"}]
+    )
+
+    response = call("get", "/team/team-1/users")
+
+    assert response.status_code == 200
+    members = response.json()
+    assert [m["user_id"] for m in members] == ["lead-1", "member-1"]
+    assert [m["email"] for m in members] == ["lead@example.com", "member@example.com"]
+    assert [m["can_create_key"] for m in members] == [True, False]
+    assert [m["is_owner"] for m in members] == [True, False]
+
+
+def test_owner_can_see_members_without_a_membership_row(db):
+    by_one_field = set_team(db, "lead-1", [{"user_id": "member-1", "can_create_key": False}])
+
+    response = call("get", "/team/team-1/users")
+
+    assert response.status_code == 200
+    assert [m["email"] for m in response.json()] == ["member@example.com"]
+    by_one_field.return_value.eq.assert_not_called()
+
+
+def test_outsider_cannot_see_members(db):
+    db["user_id"], db["role"] = "outsider-1", "member"
+    by_one_field = set_team(db, "lead-1", [{"user_id": "member-1", "can_create_key": False}])
+    by_one_field.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+
+    response = call("get", "/team/team-1/users")
+
+    assert response.status_code == 403
+    db["supabase"].auth.admin.get_user_by_id.assert_not_called()
+
+
+def test_unknown_team_is_not_found(db):
+    by_one_field = db["supabase"].table.return_value.select.return_value.eq
+    by_one_field.return_value.execute.return_value = SimpleNamespace(data=[])
+
+    assert call("get", "/team/team-9/users").status_code == 404

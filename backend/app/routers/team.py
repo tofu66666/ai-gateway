@@ -25,10 +25,6 @@ class TeamUserMappingRequest(BaseModel):
     can_create_key: bool = False
 
 
-class TeamMembersRequest(BaseModel):
-    team_id: str
-
-
 @router.post("/team/create", status_code=status.HTTP_200_OK)
 def create_team(
     payload: TeamCreateRequest,
@@ -295,22 +291,31 @@ def delete_user_team_mapping(
     return {"status": "ok", "message": "User-team mapping deleted successfully"}
 
 
-@router.get("/team/members", status_code=status.HTTP_200_OK)
+@router.get("/team/{team_id}/users", status_code=status.HTTP_200_OK)
 def get_team_members(
-    payload: TeamMembersRequest,
+    team_id: str,
     response: Response,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """
-    Get a list of members for a given team. Returns a list of user IDs.
+    Get the members of a team. Only the owner, its members or an admin can view them.
+    Returns a list: [{"user_id", "email", "can_create_key", "is_owner"}, ...]
     """
     user_id = current_user.id
     role = current_user.role
-    if role != "admin":
+    team_entry = (
+        supabase.table("teams").select("owner_id").eq("id", team_id).execute().data
+    )
+    if not team_entry:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Team not found"}
+    owner_id = team_entry[0]["owner_id"]
+
+    if role != "admin" and user_id != owner_id:
         is_member = (
             supabase.table("user_team_mappings")
             .select("user_id")
-            .eq("team_id", payload.team_id)
+            .eq("team_id", team_id)
             .eq("user_id", user_id)
             .execute()
             .data
@@ -322,16 +327,21 @@ def get_team_members(
             }
     mappings = (
         supabase.table("user_team_mappings")
-        .select("user_id")
-        .eq("team_id", payload.team_id)
+        .select("user_id, can_create_key")
+        .eq("team_id", team_id)
         .execute()
         .data
     )
-    print(payload.team_id)
-    ids = [entry["user_id"] for entry in mappings]
-    res = {}
-    for id in ids:
-        user = supabase.auth.admin.get_user_by_id(id).user
-        res[user.id] = user.email
+    res = []
+    for entry in mappings:
+        user = supabase.auth.admin.get_user_by_id(entry["user_id"]).user
+        res.append(
+            {
+                "user_id": user.id,
+                "email": user.email,
+                "can_create_key": entry["can_create_key"],
+                "is_owner": user.id == owner_id,
+            }
+        )
 
     return res

@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -27,6 +28,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
+import { CreateKeyDialog } from './CreateKeyDialog'
 
 type Sent = { model: Model; virtualKey: string; prompt: string }
 
@@ -67,6 +69,9 @@ export function PlaygroundPage() {
             Pick a model, then enter your virtual key and a prompt. The key's
             project pays for the call.
           </CardDescription>
+          <CardAction>
+            <CreateKeyDialog onUse={setVirtualKey} />
+          </CardAction>
         </CardHeader>
 
         <CardContent className="space-y-5">

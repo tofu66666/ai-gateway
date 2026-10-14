@@ -19,3 +19,10 @@ export function formatMoney(value: number | string) {
   }
   return money.format(amount)
 }
+
+const date = new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium' })
+
+// "13 Nov 2026", in the viewer's time zone.
+export function formatDate(value: string) {
+  return date.format(new Date(value))
+}

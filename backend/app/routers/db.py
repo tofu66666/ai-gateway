@@ -44,7 +44,7 @@ def get_user_role(user_id):
 def db_testing():
     access_token = supabase.auth.sign_in_with_password(
         {
-            "email": "team_lead1@abc.com",
+            "email": "test@test.com",
             "password": "testtest",
         }
     ).session.access_token

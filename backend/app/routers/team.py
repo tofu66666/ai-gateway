@@ -25,6 +25,10 @@ class TeamUserMappingRequest(BaseModel):
     can_create_key: bool = False
 
 
+class TeamMembersRequest(BaseModel):
+    team_id: str
+
+
 @router.post("/team/create", status_code=status.HTTP_200_OK)
 def create_team(
     payload: TeamCreateRequest,
@@ -225,8 +229,9 @@ def upsert_user_team_mapping(
         for user in users:
             if user.email == payload.email:
                 payload.user_id = user.id
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return {"message": f"No user found with email {payload.email}"}
+        if payload.user_id is None:
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"message": f"No user found with email {payload.email}"}
 
     try:
         supabase.table("user_team_mappings").upsert(
@@ -234,8 +239,10 @@ def upsert_user_team_mapping(
                 "user_id": payload.user_id,
                 "team_id": payload.team_id,
                 "can_create_key": payload.can_create_key,
-            }
+            },
+            on_conflict="user_id,team_id",
         ).execute()
+        return {"status": "ok", "message": "User-team mapping upserted successfully"}
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": f"Failed to upsert user-team mapping: {str(e)}"}
@@ -269,8 +276,9 @@ def delete_user_team_mapping(
         for user in users:
             if user.email == payload.email:
                 payload.user_id = user.id
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return {"message": f"No user found with email {payload.email}"}
+        if payload.user_id is None:
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"message": f"No user found with email {payload.email}"}
 
     try:
         (
@@ -283,3 +291,47 @@ def delete_user_team_mapping(
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": f"Failed to delete user-team mapping: {str(e)}"}
+
+    return {"status": "ok", "message": "User-team mapping deleted successfully"}
+
+
+@router.get("/team/members", status_code=status.HTTP_200_OK)
+def get_team_members(
+    payload: TeamMembersRequest,
+    response: Response,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get a list of members for a given team. Returns a list of user IDs.
+    """
+    user_id = current_user.id
+    role = current_user.role
+    if role != "admin":
+        is_member = (
+            supabase.table("user_team_mappings")
+            .select("user_id")
+            .eq("team_id", payload.team_id)
+            .eq("user_id", user_id)
+            .execute()
+            .data
+        )
+        if not is_member:
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {
+                "message": "Forbidden: only team members or an admin can view team members"
+            }
+    mappings = (
+        supabase.table("user_team_mappings")
+        .select("user_id")
+        .eq("team_id", payload.team_id)
+        .execute()
+        .data
+    )
+    print(payload.team_id)
+    ids = [entry["user_id"] for entry in mappings]
+    res = {}
+    for id in ids:
+        user = supabase.auth.admin.get_user_by_id(id).user
+        res[user.id] = user.email
+
+    return res

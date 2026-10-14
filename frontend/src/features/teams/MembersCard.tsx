@@ -1,10 +1,23 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { queryKeys, useTeamMembers } from '@/api/hooks'
-import { saveTeamMember, type TeamMember } from '@/api/teams'
+import { removeTeamMember, saveTeamMember, type TeamMember } from '@/api/teams'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardAction,
@@ -60,6 +73,18 @@ export function MembersCard({ teamId }: { teamId: string }) {
   // Show the new position while it is being saved.
   const saving = permission.isPending ? permission.variables : undefined
 
+  const remove = useMutation({
+    mutationFn: (member: TeamMember) =>
+      removeTeamMember(teamId, member.user_id),
+    onSuccess: (_, member) => {
+      toast.success(`${member.email} removed from the team`)
+      return queryClient.invalidateQueries({
+        queryKey: queryKeys.members(teamId),
+      })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
   return (
     <Card>
       <CardHeader>
@@ -93,19 +118,29 @@ export function MembersCard({ teamId }: { teamId: string }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Email</TableHead>
-                <TableHead>Can create keys</TableHead>
+                <TableHead className="whitespace-normal">
+                  Can create keys
+                </TableHead>
+                {canManage && (
+                  <TableHead className="w-12">
+                    <span className="sr-only">Remove</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {members.data.map((member) => (
                 <TableRow key={member.user_id}>
-                  <TableCell>
-                    <span className="font-medium">{member.email}</span>
-                    {member.is_owner && (
-                      <Badge variant="secondary" className="ml-2">
-                        Team lead
-                      </Badge>
-                    )}
+                  {/* Wraps on a phone, so Remove stays on screen. */}
+                  <TableCell className="whitespace-normal">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium break-all">
+                        {member.email}
+                      </span>
+                      {member.is_owner && (
+                        <Badge variant="secondary">Team lead</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Switch
@@ -123,6 +158,17 @@ export function MembersCard({ teamId }: { teamId: string }) {
                       }
                     />
                   </TableCell>
+                  {canManage && (
+                    <TableCell className="text-right">
+                      {!member.is_owner && (
+                        <RemoveButton
+                          email={member.email}
+                          disabled={remove.isPending}
+                          onConfirm={() => remove.mutate(member)}
+                        />
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -130,5 +176,43 @@ export function MembersCard({ teamId }: { teamId: string }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+type RemoveButtonProps = {
+  email: string
+  disabled: boolean
+  onConfirm: () => void
+}
+
+function RemoveButton({ email, disabled, onConfirm }: RemoveButtonProps) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Remove ${email}`}
+          disabled={disabled}
+        >
+          <Trash2 />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {email}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            They will no longer see this team or be able to create keys for its
+            projects.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onConfirm}>
+            Remove
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

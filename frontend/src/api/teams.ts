@@ -58,3 +58,10 @@ export function getTeamMembers(teamId: string) {
 export function saveTeamMember(change: TeamMemberChange) {
   return apiFetch<null>('/team/user', { method: 'PUT', body: change })
 }
+
+export function removeTeamMember(teamId: string, userId: string) {
+  return apiFetch<null>('/team/user', {
+    method: 'DELETE',
+    body: { team_id: teamId, user_id: userId },
+  })
+}

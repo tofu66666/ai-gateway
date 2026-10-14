@@ -77,3 +77,12 @@ create table if not exists audits (
   action      text not null,
   created_at  timestamptz not null default now()
 );
+
+create or replace function add_spend(p_id uuid, amount numeric)
+returns void
+language sql
+as $$
+   update projects
+   set spend_this_month=coalesce(spend_this_month,0)+amount
+   where id=p_id;
+$$

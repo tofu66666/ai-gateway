@@ -6,11 +6,12 @@ const smallMoney = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   minimumFractionDigits: 4,
-  maximumFractionDigits: 4,
+  maximumFractionDigits: 6,
 })
 
-// USD with two decimals; amounts under a cent show four. The API may send
-// Postgres numerics as strings.
+// USD with two decimals; amounts under a cent show four to six, so the cost
+// of one request is not rounded to zero. The API may send Postgres numerics
+// as strings.
 export function formatMoney(value: number | string) {
   const amount = Number(value)
   if (amount !== 0 && Math.abs(amount) < 0.01) {

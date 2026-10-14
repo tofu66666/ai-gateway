@@ -354,7 +354,7 @@ def get_team_requests(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """
-    Get the requests made by members of a team. Only the owner, its members or an admin can view them.
+    Get the requests made by members of a team. Only the owner or an admin can view them.
     Returns a list of requests.
     """
     user_id = current_user.id
@@ -368,8 +368,9 @@ def get_team_requests(
     owner_id = team_entry[0]["owner_id"]
 
     if role != "admin" and user_id != owner_id:
+        response.status_code = status.HTTP_403_FORBIDDEN
         return {
-            "message": "Forbidden: only team members or an admin can view team requests"
+            "message": "Forbidden: only the team owner or an admin can view team requests"
         }
 
     mappings = (

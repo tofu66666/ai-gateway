@@ -1,50 +1,46 @@
-import { useEffect, useState } from 'react'
 import { Boxes } from 'lucide-react'
 
-import { getModels } from '@/api/projects'
+import { useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
+import { useCurrentUser } from '@/auth/useAuth'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { AddModelDialog } from './AddModelDialog'
 
+// Admins also get the provider and the provider's model name.
 type PricedModel = Model & {
   data_processing_country?: string
-  price_per_1m_input?: number
-  price_per_1m_output?: number
+  provider?: string
+  model?: string
 }
 
+// Prices in full: $0.075 stays $0.075.
+const usd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+})
+
 export function ModelsPage() {
-  const [models, setModels] = useState<PricedModel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    async function loadModels() {
-      try {
-        setError('')
-        setModels(await getModels())
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : 'Failed to load models',
-        )
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadModels()
-  }, [])
+  const user = useCurrentUser()
+  const query = useModels()
+  const models: PricedModel[] = query.data ?? []
+  const loading = query.isPending
+  const error = query.error?.message ?? ''
 
   function formatPrice(price?: number) {
     if (price === undefined || price === null) {
       return 'Not available'
     }
 
-    return `$${Number(price).toFixed(2)} / 1M tokens`
+    return `${usd.format(Number(price))} / 1M tokens`
   }
 
   return (
@@ -62,6 +58,11 @@ export function ModelsPage() {
           <CardDescription>
             Models available for your account.
           </CardDescription>
+          {user.role === 'admin' && (
+            <CardAction>
+              <AddModelDialog />
+            </CardAction>
+          )}
         </CardHeader>
 
         <CardContent>
@@ -92,7 +93,7 @@ export function ModelsPage() {
                   </CardHeader>
 
                   <CardContent>
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       <div>
                         <p className="text-sm text-muted-foreground">
                           Input Price
@@ -119,6 +120,17 @@ export function ModelsPage() {
                           {model.data_processing_country ?? 'Not specified'}
                         </p>
                       </div>
+
+                      {model.provider && (
+                        <div>
+                          <p className="text-sm text-muted-foreground">
+                            Provider
+                          </p>
+                          <p className="font-medium">
+                            {model.provider} / {model.model}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -40,13 +40,14 @@ def get_user_role(user_id):
 
 
 # TODO remove once we are done testing.
-@router.get("/db_testing")
-def db_testing():
-    access_token = supabase.auth.sign_in_with_password(
-        {
-            "email": "test@test.com",
-            "password": "testtest",
-        }
-    ).session.access_token
-    user_id = get_user_id(access_token)
-    return get_user_role(user_id), user_id, access_token
+# Off: it hands out an admin token and breaks admin calls on the shared client.
+# @router.get("/db_testing")
+# def db_testing():
+#     access_token = supabase.auth.sign_in_with_password(
+#         {
+#             "email": "test@test.com",
+#             "password": "testtest",
+#         }
+#     ).session.access_token
+#     user_id = get_user_id(access_token)
+#     return get_user_role(user_id), user_id, access_token

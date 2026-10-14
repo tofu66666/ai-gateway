@@ -1,9 +1,16 @@
 import { useState } from 'react'
-import { Send } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { CircleAlert, Send } from 'lucide-react'
+import { Link } from 'react-router'
 
+import { GatewayError, sendChat } from '@/api/gateway'
+import { useModels } from '@/api/hooks'
+import type { Model } from '@/api/projects'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -19,13 +26,32 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { requestCost } from '@/lib/cost'
+import { formatMoney } from '@/lib/format'
+import { CreateKeyDialog } from './CreateKeyDialog'
 
+type Sent = { model: Model; virtualKey: string; prompt: string }
+
+// H18IALMOND-11: the key decides the project, so the gateway refuses a model
+// that project does not allow.
 export function PlaygroundPage() {
-  const [team, setTeam] = useState('')
-  const [project, setProject] = useState('')
-  const [model, setModel] = useState('')
+  const models = useModels()
+  const [modelId, setModelId] = useState('')
   const [virtualKey, setVirtualKey] = useState('')
   const [prompt, setPrompt] = useState('')
+  const model = models.data?.find((candidate) => candidate.id === modelId)
+
+  const send = useMutation({
+    mutationFn: (request: Sent) =>
+      sendChat(request.virtualKey, request.model.alias, request.prompt),
+  })
+  const sent = send.variables
+
+  function handleSend() {
+    if (model) {
+      send.mutate({ model, virtualKey: virtualKey.trim(), prompt })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -40,69 +66,32 @@ export function PlaygroundPage() {
         <CardHeader>
           <CardTitle>New Request</CardTitle>
           <CardDescription>
-            Select a team, project and model, then enter your virtual key and prompt.
+            Pick a model, then enter your virtual key and a prompt. The key's
+            project pays for the call.
           </CardDescription>
+          <CardAction>
+            <CreateKeyDialog onUse={setVirtualKey} />
+          </CardAction>
         </CardHeader>
 
         <CardContent className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label>Team</Label>
-              <Select
-                value={team}
-                onValueChange={(value) => {
-                  setTeam(value)
-                  setProject('')
-                  setModel('')
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="demo-team">Demo Team</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <Select
-                value={project}
-                onValueChange={(value) => {
-                  setProject(value)
-                  setModel('')
-                }}
-                disabled={!team}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="demo-project">
-                    Demo Project
+          <div className="space-y-2">
+            <Label htmlFor="model">Model</Label>
+            <Select value={modelId} onValueChange={setModelId}>
+              <SelectTrigger id="model" className="w-full">
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                {models.data?.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.alias}
                   </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Model</Label>
-              <Select
-                value={model}
-                onValueChange={setModel}
-                disabled={!project}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="demo-model">
-                    Demo Model
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                ))}
+              </SelectContent>
+            </Select>
+            {models.isError && (
+              <p className="text-sm text-destructive">{models.error.message}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -128,16 +117,16 @@ export function PlaygroundPage() {
 
           <div className="flex justify-end">
             <Button
+              onClick={handleSend}
               disabled={
-                !team ||
-                !project ||
+                send.isPending ||
                 !model ||
                 !virtualKey.trim() ||
                 !prompt.trim()
               }
             >
               <Send />
-              Send Request
+              {send.isPending ? 'Sending...' : 'Send Request'}
             </Button>
           </div>
         </CardContent>
@@ -151,23 +140,73 @@ export function PlaygroundPage() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent>
-          <div className="min-h-32 rounded-md border p-4 text-sm text-muted-foreground">
-            No response yet.
+        <CardContent className="space-y-4">
+          {send.isError && <GatewayAlert error={send.error} />}
+
+          <div className="min-h-32 rounded-md border p-4 text-sm whitespace-pre-wrap">
+            {send.data ? (
+              send.data.content
+            ) : (
+              <span className="text-muted-foreground">
+                {send.isPending ? 'Waiting for the model...' : 'No response yet.'}
+              </span>
+            )}
           </div>
 
-          <div className="mt-4 flex justify-between text-sm text-muted-foreground">
-            <span>Tokens: --</span>
-            <span>Cost: --</span>
-          </div>
+          {send.data && sent && (
+            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 text-sm text-muted-foreground">
+              <span>
+                Tokens: {send.data.inputTokens} in, {send.data.outputTokens} out
+              </span>
+              <span>
+                Cost:{' '}
+                {formatMoney(
+                  requestCost(
+                    sent.model,
+                    send.data.inputTokens,
+                    send.data.outputTokens,
+                  ),
+                )}
+              </span>
+              <span>Latency: {send.data.latencyMs} ms</span>
+              {send.data.requestId && (
+                <span>Request ID: {send.data.requestId}</span>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <div className="flex justify-end">
-        <Button variant="outline">
-          Request History
+        <Button variant="outline" asChild>
+          <Link to="/requests">Request History</Link>
         </Button>
       </div>
     </div>
+  )
+}
+
+const errorTitles: Record<number, string> = {
+  401: 'The key was not accepted',
+  403: 'Not allowed',
+  404: 'Not found',
+  429: 'Too many requests',
+}
+
+function GatewayAlert({ error }: { error: Error }) {
+  const status = error instanceof GatewayError ? error.status : null
+  let title = "Couldn't reach the gateway"
+  if (status !== null) {
+    title =
+      status >= 500 ? 'The provider failed' : (errorTitles[status] ?? 'Request failed')
+  }
+  return (
+    <Alert variant="destructive">
+      <CircleAlert />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        {status === null ? error.message : `${status}: ${error.message}`}
+      </AlertDescription>
+    </Alert>
   )
 }

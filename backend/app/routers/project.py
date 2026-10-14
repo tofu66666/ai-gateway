@@ -5,10 +5,15 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, FiniteFloat, StringConstraints
 
+from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import get_user_id, get_user_role, supabase
 
 router = APIRouter(tags=["project"])
 security = HTTPBearer()
+
+PROJECT_READ_COLUMNS = (
+    "id,team_id,name,model_ids,budget_per_month,spend_this_month"
+)
 
 
 class ProjectCreateRequest(BaseModel):
@@ -64,6 +69,55 @@ def get_team_by_id(team_id: UUID) -> dict | None:
     return team_rows[0]
 
 
+def get_accessible_team_ids(user_id: str) -> set[str]:
+    """Return IDs of teams that the user owns or belongs to."""
+    owned_teams = (
+        supabase.table("teams")
+        .select("id")
+        .eq("owner_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+    team_memberships = (
+        supabase.table("user_team_mappings")
+        .select("team_id")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+
+    return {
+        str(team["id"])
+        for team in owned_teams
+        if team.get("id") is not None
+    } | {
+        str(membership["team_id"])
+        for membership in team_memberships
+        if membership.get("team_id") is not None
+    }
+
+
+def get_project_rows(
+    team_ids: set[str] | None = None,
+    team_id: UUID | None = None,
+) -> list[dict]:
+    """Return projects, optionally limited to one team or an allowed team set."""
+    if team_id is None and team_ids is not None and not team_ids:
+        return []
+
+    query = supabase.table("projects").select(PROJECT_READ_COLUMNS)
+
+    if team_id is not None:
+        query = query.eq("team_id", str(team_id))
+    elif team_ids is not None:
+        query = query.in_("team_id", sorted(team_ids))
+
+    project_response = query.order("name").execute()
+    return project_response.data or []
+
+
 def get_model_rows(model_ids: list[UUID]) -> list[dict]:
     """Return database rows for the requested model IDs."""
     # An empty IN () query is invalid, so there is nothing to query here.
@@ -98,6 +152,30 @@ def insert_project(project_data: dict) -> dict | None:
         return None
 
     return created_projects[0]
+
+
+@router.get("/projects", status_code=status.HTTP_200_OK)
+def list_projects(
+    response: Response,
+    team_id: UUID | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List projects visible to the current user, with an optional team filter."""
+    try:
+        if current_user.role == "admin":
+            return get_project_rows(team_id=team_id)
+
+        accessible_team_ids = get_accessible_team_ids(current_user.id)
+        if team_id is not None and str(team_id) not in accessible_team_ids:
+            return []
+
+        if team_id is not None:
+            return get_project_rows(team_id=team_id)
+
+        return get_project_rows(team_ids=accessible_team_ids)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to load projects"}
 
 
 @router.post("/projects", status_code=status.HTTP_201_CREATED)

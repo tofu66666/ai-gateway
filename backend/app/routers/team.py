@@ -345,3 +345,45 @@ def get_team_members(
         )
 
     return res
+
+
+@router.get("/team/{team_id}/requests", status_code=status.HTTP_200_OK)
+def get_team_requests(
+    team_id: str,
+    response: Response,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get the requests made by members of a team. Only the owner or an admin can view them.
+    Returns a list of requests.
+    """
+    user_id = current_user.id
+    role = current_user.role
+    team_entry = (
+        supabase.table("teams").select("owner_id").eq("id", team_id).execute().data
+    )
+    if not team_entry:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Team not found"}
+    owner_id = team_entry[0]["owner_id"]
+
+    if role != "admin" and user_id != owner_id:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {
+            "message": "Forbidden: only the team owner or an admin can view team requests"
+        }
+
+    mappings = (
+        supabase.table("projects").select("id").eq("team_id", team_id).execute().data
+    )
+    ids = [entry["id"] for entry in mappings]
+    requests = (
+        supabase.table("requests")
+        .select("*")
+        .in_("project_id", ids)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+    return requests

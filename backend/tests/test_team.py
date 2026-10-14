@@ -20,6 +20,7 @@ ENDPOINTS = [
     ("put", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("delete", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("get", "/team/team-1/users", None),
+    ("get", "/team/team-1/requests", None),
 ]
 
 
@@ -178,3 +179,32 @@ def test_unknown_team_is_not_found(db):
     by_one_field.return_value.execute.return_value = SimpleNamespace(data=[])
 
     assert call("get", "/team/team-9/users").status_code == 404
+
+
+def test_owner_sees_team_requests(db):
+    # The owner lookup runs first, then the team's projects.
+    by_one_field = db["supabase"].table.return_value.select.return_value.eq
+    by_one_field.return_value.execute.side_effect = [
+        SimpleNamespace(data=[{"owner_id": "lead-1"}]),
+        SimpleNamespace(data=[{"id": "project-1"}, {"id": "project-2"}]),
+    ]
+    rows = [{"id": "request-1", "project_id": "project-1", "user_id": "member-1", "cost": 0.01}]
+    by_project = db["supabase"].table.return_value.select.return_value.in_
+    by_project.return_value.order.return_value.execute.return_value = SimpleNamespace(data=rows)
+
+    response = call("get", "/team/team-1/requests")
+
+    assert response.status_code == 200
+    assert response.json() == rows
+    assert by_project.call_args.args == ("project_id", ["project-1", "project-2"])
+
+
+def test_outsider_cannot_see_team_requests(db):
+    db["user_id"], db["role"] = "member-1", "member"
+    by_one_field = db["supabase"].table.return_value.select.return_value.eq
+    by_one_field.return_value.execute.return_value = SimpleNamespace(data=[{"owner_id": "lead-1"}])
+
+    response = call("get", "/team/team-1/requests")
+
+    assert response.status_code == 403
+    db["supabase"].table.return_value.select.return_value.in_.assert_not_called()

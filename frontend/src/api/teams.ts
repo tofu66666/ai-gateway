@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import type { RequestRow } from './requests'
 
 export type Team = {
   id: string
@@ -64,4 +65,35 @@ export function removeTeamMember(teamId: string, userId: string) {
     method: 'DELETE',
     body: { team_id: teamId, user_id: userId },
   })
+}
+
+// Every request in the team's projects, for its lead or an admin.
+export function getTeamRequests(teamId: string) {
+  return apiFetch<RequestRow[]>(`/team/${encodeURIComponent(teamId)}/requests`)
+}
+
+export type TeamUsage = {
+  team: Team
+  members: TeamMember[]
+  requests: RequestRow[]
+}
+
+// The teams the user leads (every team for an admin), with their requests and
+// the members who made them.
+export async function getTeamUsage(
+  teams: Team[],
+  userId: string,
+  isAdmin: boolean,
+) {
+  const usage = await Promise.all(
+    teams.map(async (team): Promise<TeamUsage | null> => {
+      const members = await getTeamMembers(team.id)
+      const leads =
+        isAdmin ||
+        members.some((member) => member.is_owner && member.user_id === userId)
+      if (!leads) return null
+      return { team, members, requests: await getTeamRequests(team.id) }
+    }),
+  )
+  return usage.filter((entry) => entry !== null)
 }

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getModels, getProjects } from './projects'
+import { getRequests } from './requests'
 import { getTeamMembers, getTeams } from './teams'
 
 // Invalidate a key after changing what it lists, so every page refreshes.
@@ -9,6 +10,7 @@ export const queryKeys = {
   allProjects: ['projects'],
   projects: (teamId?: string) => ['projects', teamId ?? 'all'],
   models: ['models'],
+  requests: ['requests'],
 }
 
 export function useTeams() {
@@ -31,4 +33,8 @@ export function useProjects(teamId?: string) {
 
 export function useModels() {
   return useQuery({ queryKey: queryKeys.models, queryFn: getModels })
+}
+
+export function useRequests() {
+  return useQuery({ queryKey: queryKeys.requests, queryFn: getRequests })
 }

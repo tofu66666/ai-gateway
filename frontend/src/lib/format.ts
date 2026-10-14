@@ -26,3 +26,13 @@ const date = new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium' })
 export function formatDate(value: string) {
   return date.format(new Date(value))
 }
+
+const dateTime = new Intl.DateTimeFormat('en-AU', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+// "14 Oct 2026, 11:42 am", in the viewer's time zone.
+export function formatDateTime(value: string) {
+  return dateTime.format(new Date(value))
+}

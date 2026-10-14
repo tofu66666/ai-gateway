@@ -23,3 +23,12 @@ export function useTimeWindow() {
   }
   return state
 }
+
+// When a window starts, in the viewer's time zone.
+export function windowStart(timeWindow: TimeWindow, now = new Date()) {
+  if (timeWindow === 'this_month') {
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  }
+  const days = timeWindow === 'last_7_days' ? 7 : 30
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+}

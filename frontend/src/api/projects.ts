@@ -24,8 +24,22 @@ export type CreateProjectRequest = {
   budget_per_month: number | null
 }
 
+export type NewModel = {
+  alias: string
+  provider: string
+  model: string
+  price_per_1m_input: number
+  price_per_1m_output: number
+  data_processing_country: string | null
+}
+
 export function getModels() {
   return apiFetch<Model[]>('/models')
+}
+
+// Admins only (H18IALMOND-53).
+export function createModel(model: NewModel) {
+  return apiFetch<Model>('/models', { method: 'POST', body: model })
 }
 
 // Projects in the caller's teams (all of them for an admin). The endpoint is

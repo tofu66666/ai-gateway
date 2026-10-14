@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { FolderKanban } from 'lucide-react'
 
+import { useModels, useProjects, useRequests, useTeams } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/useAuth'
+import { ErrorState } from '@/components/layout/ErrorState'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -26,15 +27,49 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { timeWindows, useTimeWindow } from '@/lib/time-window'
-import type { TimeWindow } from '@/lib/time-window'
+import { formatMoney } from '@/lib/format'
+import { useTimeWindow, windowStart } from '@/lib/time-window'
 
+// H18IALMOND-12, -14: your usage, filtered. The totals add up GET /requests
+// until GET /stats (H18IALMOND-54) exists.
 export function OverviewPage() {
   const user = useCurrentUser()
   const { timeWindow, setTimeWindow } = useTimeWindow()
   const [model, setModel] = useState('all')
   const [team, setTeam] = useState('all')
   const [project, setProject] = useState('all')
+  const requests = useRequests()
+  const models = useModels()
+  const teams = useTeams()
+  const projects = useProjects()
+
+  const since = windowStart(timeWindow).getTime()
+  const teamOf = new Map(projects.data?.map((p) => [p.id, p.team_id]))
+  const rows = (requests.data ?? []).filter(
+    (row) =>
+      new Date(row.created_at).getTime() >= since &&
+      (model === 'all' || row.model_id === model) &&
+      (team === 'all' || teamOf.get(row.project_id) === team) &&
+      (project === 'all' || row.project_id === project),
+  )
+  const tokensOf = (list: typeof rows) =>
+    list.reduce((sum, row) => sum + row.input_tokens + row.output_tokens, 0)
+  const costOf = (list: typeof rows) =>
+    list.reduce((sum, row) => sum + Number(row.cost), 0)
+  const spending = costOf(rows)
+  const byModel = (models.data ?? [])
+    .map((option) => {
+      const own = rows.filter((row) => row.model_id === option.id)
+      return {
+        alias: option.alias,
+        requests: own.length,
+        tokens: tokensOf(own),
+        cost: costOf(own),
+      }
+    })
+    .filter((entry) => entry.requests > 0)
+    .sort((a, b) => b.cost - a.cost)
+  const shown = (value: string) => (requests.data ? value : '—')
 
   const canViewTeamUsage =
     user.role === 'team_lead' || user.role === 'admin'
@@ -59,33 +94,12 @@ export function OverviewPage() {
         <CardHeader>
           <CardTitle>Filters</CardTitle>
           <CardDescription>
-            Filter project usage and spending.
+            The time period is in the top bar.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
-              <Label>Time period</Label>
-              <Select
-                value={timeWindow}
-                onValueChange={(value) =>
-                  setTimeWindow(value as TimeWindow)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {timeWindows.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Model</Label>
               <Select value={model} onValueChange={setModel}>
@@ -94,30 +108,58 @@ export function OverviewPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All models</SelectItem>
+                  {models.data?.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.alias}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label>Team</Label>
-              <Select value={team} onValueChange={setTeam}>
+              <Select
+                value={team}
+                onValueChange={(value) => {
+                  setTeam(value)
+                  setProject('all')
+                }}
+                disabled={!projects.data}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All teams</SelectItem>
+                  {teams.data?.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label>Project</Label>
-              <Select value={project} onValueChange={setProject}>
+              <Select
+                value={project}
+                onValueChange={setProject}
+                disabled={!projects.data}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All projects</SelectItem>
+                  {projects.data
+                    ?.filter((option) => team === 'all' || option.team_id === team)
+                    .map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -133,28 +175,6 @@ export function OverviewPage() {
 
       <div>
         <h2 className="text-lg font-semibold">
-          Project Usage & Spending
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Usage and spending for projects matching the selected filters.
-        </p>
-      </div>
-
-      <Card>
-        <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-          <FolderKanban className="size-8 text-muted-foreground" />
-          <p className="font-medium">
-            No project usage data available
-          </p>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Project usage and spending will appear here when data is
-            available.
-          </p>
-        </CardContent>
-      </Card>
-
-      <div>
-        <h2 className="text-lg font-semibold">
           Your Usage & Spending
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -162,25 +182,35 @@ export function OverviewPage() {
         </p>
       </div>
 
+      {requests.isError && (
+        <ErrorState title="Couldn't load your usage" error={requests.error} />
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
             <CardDescription>Total Requests</CardDescription>
-            <CardTitle className="text-2xl">—</CardTitle>
+            <CardTitle className="text-2xl">
+              {shown(rows.length.toLocaleString('en-US'))}
+            </CardTitle>
           </CardHeader>
         </Card>
 
         <Card>
           <CardHeader>
             <CardDescription>Token Usage</CardDescription>
-            <CardTitle className="text-2xl">—</CardTitle>
+            <CardTitle className="text-2xl">
+              {shown(tokensOf(rows).toLocaleString('en-US'))}
+            </CardTitle>
           </CardHeader>
         </Card>
 
         <Card>
           <CardHeader>
             <CardDescription>Total Spending</CardDescription>
-            <CardTitle className="text-2xl">—</CardTitle>
+            <CardTitle className="text-2xl">
+              {shown(formatMoney(spending))}
+            </CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -194,9 +224,38 @@ export function OverviewPage() {
         </CardHeader>
 
         <CardContent>
-          <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
-            No personal usage data available
-          </div>
+          {byModel.length === 0 ? (
+            <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
+              No personal usage data available
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Requests</TableHead>
+                  <TableHead>Tokens</TableHead>
+                  <TableHead>Spending</TableHead>
+                  <TableHead>Share</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {byModel.map((entry) => (
+                  <TableRow key={entry.alias}>
+                    <TableCell className="font-medium">{entry.alias}</TableCell>
+                    <TableCell>{entry.requests}</TableCell>
+                    <TableCell>{entry.tokens.toLocaleString('en-US')}</TableCell>
+                    <TableCell>{formatMoney(entry.cost)}</TableCell>
+                    <TableCell>
+                      {spending > 0
+                        ? `${Math.round((entry.cost / spending) * 100)}%`
+                        : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

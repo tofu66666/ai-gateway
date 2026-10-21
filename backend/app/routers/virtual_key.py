@@ -1,9 +1,10 @@
 import hashlib
 import secrets
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, BaseModel, Field
 
@@ -318,6 +319,173 @@ def rotate_api_key(
         "expires_at": new_key["expires_at"],
         "created_at": new_key["created_at"],
     }
+
+
+def get_key_status(key: dict) -> str:
+    """revoked if revoked_at is set, else expired if expires_at has passed, else active."""
+    if key.get("revoked_at"):
+        return "revoked"
+    return "expired" if is_expired(key) else "active"
+
+
+def get_led_team_ids(user_id: str) -> set[str]:
+    """IDs of the teams this user leads (owns)."""
+    rows = supabase.table("teams").select("id").eq("owner_id", user_id).execute().data
+    return {row["id"] for row in rows}
+
+
+def get_member_team_ids(user_id: str) -> set[str]:
+    """IDs of the teams this user belongs to."""
+    rows = (
+        supabase.table("user_team_mappings")
+        .select("team_id")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    return {row["team_id"] for row in rows}
+
+
+def get_project_ids(project_id: UUID | None = None, team_ids: set[str] | None = None) -> dict:
+    """Map project ID -> team ID for one project, the projects of some teams, or both."""
+    query = supabase.table("projects").select("id, team_id")
+    if project_id is not None:
+        query = query.eq("id", str(project_id))
+    if team_ids is not None:
+        query = query.in_("team_id", sorted(team_ids))
+    return {row["id"]: row["team_id"] for row in query.execute().data}
+
+
+def get_keys(conditions: list[str] | None) -> list[dict]:
+    """
+    Keys newest first, with their project's name and team. conditions are
+    PostgREST filters joined with OR; None means every key.
+    """
+    query = supabase.table("virtual_keys").select(
+        "id, prefix, name, project_id, user_id, created_at, expires_at, revoked_at, "
+        "projects(name, team_id)"
+    )
+    if conditions is not None:
+        query = query.or_(",".join(conditions))
+    return query.order("created_at", desc=True).execute().data
+
+
+def get_user_emails() -> dict:
+    """Map user ID -> email from Supabase Auth."""
+    return {user.id: user.email for user in supabase.auth.admin.list_users(per_page=1000)}
+
+
+def in_filter(column: str, ids) -> str:
+    return f"{column}.in.({','.join(sorted(ids))})"
+
+
+def scoped_key_conditions(
+    user: CurrentUser, led_team_ids: set[str], wanted_projects: set[str] | None
+) -> list[str]:
+    """
+    Filters for the keys this user may see: their own keys, plus every key in
+    the teams they lead. wanted_projects (None = no filter) narrows both.
+    """
+    conditions = []
+    led_projects = set(get_project_ids(team_ids=led_team_ids)) if led_team_ids else set()
+    if wanted_projects is not None:
+        led_projects &= wanted_projects
+    if led_projects:
+        conditions.append(in_filter("project_id", led_projects))
+
+    own_keys = f"user_id.eq.{user.id}"
+    if wanted_projects is None:
+        conditions.append(own_keys)
+    elif wanted_projects:
+        conditions.append(f"and({own_keys},{in_filter('project_id', wanted_projects)})")
+    return conditions
+
+
+class OutOfScope(Exception):
+    """A key list filter names a team or project the user is not in."""
+
+
+def wanted_project_ids(
+    project_id: UUID | None, team_id: UUID | None, my_team_ids: set[str] | None
+) -> set[str] | None:
+    """
+    Project IDs the filters ask for (None = no filter). my_team_ids is None for
+    admins; anyone else gets OutOfScope for a team or project outside it.
+    """
+    wanted = None
+    if team_id is not None:
+        if my_team_ids is not None and str(team_id) not in my_team_ids:
+            raise OutOfScope("Forbidden: you are not in this team")
+        wanted = set(get_project_ids(team_ids={str(team_id)}))
+    if project_id is not None:
+        project_team = get_project_ids(project_id=project_id)
+        if my_team_ids is not None and not set(project_team.values()) & my_team_ids:
+            raise OutOfScope("Forbidden: you are not in this project's team")
+        project_ids = set(project_team)
+        wanted = project_ids if wanted is None else wanted & project_ids
+    return wanted
+
+
+def listed_key(key: dict, key_status: str, emails: dict) -> dict:
+    """A key as GET /api_keys shows it, never with its hash."""
+    project = key.get("projects") or {}
+    return {
+        "id": key["id"],
+        "prefix": key["prefix"],
+        "name": key.get("name"),
+        "project_id": key["project_id"],
+        "project_name": project.get("name"),
+        "team_id": project.get("team_id"),
+        "user_id": key["user_id"],
+        "user_email": emails.get(key["user_id"]),
+        # Empty means every model the project allows, until per-key model
+        # limits land (H18IALMOND-33).
+        "allowed_models": [],
+        "created_at": key["created_at"],
+        "expires_at": key["expires_at"],
+        "revoked_at": key.get("revoked_at"),
+        "status": key_status,
+    }
+
+
+@router.get("/api_keys")
+def list_api_keys(
+    response: Response,
+    project_id: UUID | None = None,
+    team_id: UUID | None = None,
+    status_filter: Literal["active", "revoked", "expired"] | None = Query(None, alias="status"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    List keys, newest first. Users see their own keys, team leads also every
+    key in the teams they lead, admins every key.
+    """
+    is_admin = user.role == "admin"
+    try:
+        led_team_ids = set() if is_admin else get_led_team_ids(user.id)
+        my_team_ids = None if is_admin else led_team_ids | get_member_team_ids(user.id)
+        wanted = wanted_project_ids(project_id, team_id, my_team_ids)
+
+        if not is_admin:
+            conditions = scoped_key_conditions(user, led_team_ids, wanted)
+        elif wanted is None:
+            conditions = None
+        else:
+            conditions = [in_filter("project_id", wanted)] if wanted else []
+
+        keys = get_keys(conditions) if conditions != [] else []
+        emails = get_user_emails() if keys else {}
+    except OutOfScope as e:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": str(e)}
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to list keys"}
+
+    listed = [listed_key(key, get_key_status(key), emails) for key in keys]
+    if status_filter is not None:
+        listed = [key for key in listed if key["status"] == status_filter]
+    return listed
 
 
 @router.get("/virtual_key/validate")

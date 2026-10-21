@@ -57,6 +57,32 @@ def can_access_project(current_user: CurrentUser, project_id: str) -> bool:
     return can_access_team(current_user, str(team_id))
 
 
+def can_access_key(current_user: CurrentUser, key_id: str) -> bool:
+    if current_user.role == "admin":
+        return True
+
+    key_row = (
+        supabase.table("virtual_keys")
+        .select("project_id, user_id")
+        .eq("id", str(key_id))
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not key_row:
+        return False
+
+    key_data = key_row[0]
+    if str(key_data.get("user_id")) == str(current_user.id):
+        return True
+
+    project_id = key_data.get("project_id")
+    if project_id and can_access_project(current_user, str(project_id)):
+        return True
+
+    return False
+
+
 def get_team_rows_for_range(team_id: str, start: int, end: int) -> list[dict]:
     project_rows = (
         supabase.table("projects")
@@ -115,12 +141,19 @@ def get_rows_for_id(id: str, current_user: CurrentUser, start: int, end: int):
             .data
         )
 
-    for column in ("model_id", "user_id"):
+    for column in ("model_id", "user_id", "key_id"):
         if column == "user_id" and current_user.role != "admin":
             if str(id) != str(current_user.id):
                 raise HTTPException(
                     status_code=403,
                     detail="Forbidden: you can only view your own user stats",
+                )
+
+        if column == "key_id":
+            if not can_access_key(current_user, str(id)):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Forbidden: only the key owner, the project team owner, or an admin can access key stats",
                 )
 
         rows = (

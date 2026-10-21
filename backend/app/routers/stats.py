@@ -136,3 +136,85 @@ def get_rows_for_id(id: str, current_user: CurrentUser, start: int, end: int):
             return rows
 
     return []
+
+
+def percentile(values: list[int], fraction: float):
+    if not values:
+        return 0.0
+
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+
+    position = max(0, min(len(ordered) - 1, int(len(ordered) * fraction)))
+    return float(ordered[position])
+
+
+def aggregate_metrics(rows: list[dict]):
+    metrics = {
+        "input": 0,
+        "output": 0,
+        "total_cost": 0.0000,
+        "count": len(rows),
+        "success_count": 0,
+        "failure_count": 0,
+    }
+    latency_values = []
+
+    for row in rows:
+        metrics["input"] += int(row.get("input_tokens") or 0)
+        metrics["output"] += int(row.get("output_tokens") or 0)
+        metrics["total_cost"] += float(row.get("cost") or 0.0)
+
+        status = str(row.get("status") or "")
+        if status.startswith("2"):
+            metrics["success_count"] += 1
+        else:
+            metrics["failure_count"] += 1
+
+        latency = row.get("latency")
+        if latency is not None:
+            latency_values.append(int(latency))
+
+    if rows:
+        metrics["avg_cost"] = round(metrics["total_cost"] / len(rows), 4)
+        metrics["success_rate"] = metrics["success_count"] / len(rows)
+    else:
+        metrics["avg_cost"] = 0.0000
+        metrics["success_rate"] = 0.00
+
+    metrics["total_cost"] = round(metrics["total_cost"], 4)
+
+    if latency_values:
+        metrics["latency_max"] = max(latency_values)
+        metrics["latency_p50"] = int(round(percentile(latency_values, 0.5)))
+        metrics["latency_p95"] = int(round(percentile(latency_values, 0.95)))
+        metrics["latency_p99"] = int(round(percentile(latency_values, 0.99)))
+    else:
+        metrics["latency_max"] = 0
+        metrics["latency_p50"] = 0
+        metrics["latency_p95"] = 0
+        metrics["latency_p99"] = 0
+
+    return metrics
+
+
+@router.get("/stats/{resource_id}")
+def get_stats(
+    resource_id: str,
+    response: Response,
+    start: int | None = None,
+    end: int | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    if start is None or end is None:
+        now = datetime.now(timezone.utc)
+        start = int((now - timedelta(days=30)).timestamp())
+        end = int(now.timestamp())
+
+    try:
+        rows = get_rows_for_id(resource_id, current_user, start, end)
+    except Exception as e:
+        response.status_code = getattr(e, "status_code", 500)
+        return {"message": getattr(e, "detail", str(e))}
+    return aggregate_metrics(rows)

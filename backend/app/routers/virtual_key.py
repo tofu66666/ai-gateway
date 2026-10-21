@@ -153,7 +153,7 @@ def validate_virtual_key(
     response: Response,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    """Validate a virtual key and reject expired keys with 403."""
+    """Validate a virtual key and reject revoked or expired keys with 401."""
     token = credentials.credentials if credentials else None
     if not token:
         response.status_code = status.HTTP_401_UNAUTHORIZED
@@ -163,6 +163,10 @@ def validate_virtual_key(
     result = supabase.table("virtual_keys").select("*").eq("hash", token_hash).execute()
     result = result.data[0] if result.data else None
     if result:
+        if result.get("revoked_at"):
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": "Virtual key revoked"}
+
         expires_at = result.get("expires_at")
         if expires_at:
             expires_at_value = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
@@ -170,7 +174,7 @@ def validate_virtual_key(
                 expires_at_value = expires_at_value.replace(tzinfo=timezone.utc)
 
             if expires_at_value <= datetime.now(timezone.utc):
-                response.status_code = status.HTTP_403_FORBIDDEN
+                response.status_code = status.HTTP_401_UNAUTHORIZED
                 return {"message": "Virtual key expired"}
 
         team_id = (

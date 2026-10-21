@@ -88,6 +88,17 @@ def find_key(key_id: UUID) -> dict | None:
     return rows[0] if rows else None
 
 
+def is_expired(key: dict) -> bool:
+    """True once the key's expires_at has passed."""
+    expires_at = key.get("expires_at")
+    if not expires_at:
+        return False
+    expires_at_value = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    if expires_at_value.tzinfo is None:
+        expires_at_value = expires_at_value.replace(tzinfo=timezone.utc)
+    return expires_at_value <= datetime.now(timezone.utc)
+
+
 def can_revoke_key(user: CurrentUser, key: dict, team: dict | None) -> bool:
     """The key's owner, the lead of the key's team, or any admin may revoke it."""
     if user.role == "admin" or user.id == str(key["user_id"]):
@@ -100,6 +111,27 @@ def revoke_key(key_id: UUID, actor_id: str) -> dict | None:
     rows = (
         supabase.rpc(
             "revoke_virtual_key", {"p_key_id": str(key_id), "p_actor_id": actor_id}
+        )
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+def rotate_key(key_id: UUID, actor_id: str, raw_key: str) -> dict | None:
+    """
+    Swap the key for raw_key and audit it in one transaction. Returns the new
+    row, or None if the old key was revoked or expired in the meantime.
+    """
+    rows = (
+        supabase.rpc(
+            "rotate_virtual_key",
+            {
+                "p_key_id": str(key_id),
+                "p_actor_id": actor_id,
+                "p_hash": hash_key(raw_key),
+                "p_prefix": raw_key[:DISPLAY_PREFIX_LENGTH],
+            },
         )
         .execute()
         .data
@@ -226,6 +258,68 @@ def revoke_api_key(
     return {"id": revoked["id"], "status": "revoked", "revoked_at": revoked["revoked_at"]}
 
 
+@router.post("/rotate_api_key", status_code=status.HTTP_201_CREATED)
+def rotate_api_key(
+    payload: KeyIdRequest,
+    response: Response,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Replace an active key with a new one for the same project and user. The old
+    key stops working at once; the new raw key is in this response only.
+    """
+    try:
+        key = find_key(payload.key_id)
+        team = get_project_team(key["project_id"]) if key else None
+        # Rotating shows the new raw key to the caller, so only the key's owner
+        # may do it, and only while they may still create keys in the team.
+        allowed = (
+            key is not None
+            and team is not None
+            and user.id == str(key["user_id"])
+            and can_create_key(user.id, team)
+        )
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up key"}
+
+    if key is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Key not found"}
+
+    if not allowed:
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {
+            "message": "Forbidden: only the key's owner, while allowed to create keys, can rotate it"
+        }
+
+    if key["revoked_at"] or is_expired(key):
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "Revoked or expired keys cannot be rotated; create a new key instead"}
+
+    raw_key = generate_key()
+    try:
+        new_key = rotate_key(payload.key_id, user.id, raw_key)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to rotate key"}
+
+    # Another request revoked it, or it expired, between our check and the swap.
+    if new_key is None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "Revoked or expired keys cannot be rotated; create a new key instead"}
+
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "id": new_key["id"],
+        "key": raw_key,
+        "prefix": new_key["prefix"],
+        "project_id": new_key["project_id"],
+        "expires_at": new_key["expires_at"],
+        "created_at": new_key["created_at"],
+    }
+
+
 @router.get("/virtual_key/validate")
 def validate_virtual_key(
     response: Response,
@@ -245,15 +339,9 @@ def validate_virtual_key(
             response.status_code = status.HTTP_401_UNAUTHORIZED
             return {"message": "Virtual key revoked"}
 
-        expires_at = result.get("expires_at")
-        if expires_at:
-            expires_at_value = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-            if expires_at_value.tzinfo is None:
-                expires_at_value = expires_at_value.replace(tzinfo=timezone.utc)
-
-            if expires_at_value <= datetime.now(timezone.utc):
-                response.status_code = status.HTTP_401_UNAUTHORIZED
-                return {"message": "Virtual key expired"}
+        if is_expired(result):
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": "Virtual key expired"}
 
         team_id = (
             supabase.table("projects")

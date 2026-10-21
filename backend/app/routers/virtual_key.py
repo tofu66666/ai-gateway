@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import controls_virtual_key, supabase
@@ -23,6 +23,8 @@ DISPLAY_PREFIX_LENGTH = 12
 
 class CreateKeyRequest(BaseModel):
     project_id: UUID
+    # Optional label so users can tell their keys apart, e.g. "billing-bot".
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     # Leave out to use the database default (30 days from now).
     expires_at: AwareDatetime | None = None
 
@@ -118,6 +120,8 @@ def create_api_key(
         "hash": hash_key(raw_key),
         "prefix": raw_key[:DISPLAY_PREFIX_LENGTH],
     }
+    if payload.name is not None:
+        key_data["name"] = payload.name
     if expires_at is not None:
         key_data["expires_at"] = expires_at.isoformat()
 

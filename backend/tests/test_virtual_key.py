@@ -137,6 +137,23 @@ def test_default_expiry_is_left_to_database(db):
     assert "expires_at" not in db["inserted"][0]
 
 
+def test_name_is_stored(db):
+    response = create({"project_id": PROJECT_ID, "name": "billing-bot"})
+
+    assert response.status_code == 201
+    assert db["inserted"][0]["name"] == "billing-bot"
+
+
+def test_name_is_optional(db):
+    create()
+
+    assert "name" not in db["inserted"][0]
+
+
+def test_empty_name_is_rejected(db):
+    assert create({"project_id": PROJECT_ID, "name": ""}).status_code == 422
+
+
 def test_past_expiry_is_rejected(db):
     expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
 

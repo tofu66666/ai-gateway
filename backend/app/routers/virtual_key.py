@@ -75,6 +75,38 @@ def can_create_key(user_id: str, team: dict) -> bool:
     return bool(controls_virtual_key(user_id, team["id"]))
 
 
+def find_key(key_id: UUID) -> dict | None:
+    """Return the virtual_keys row with this ID, if it exists."""
+    rows = (
+        supabase.table("virtual_keys")
+        .select("id, project_id, user_id, expires_at, revoked_at")
+        .eq("id", str(key_id))
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+def can_revoke_key(user: CurrentUser, key: dict, team: dict | None) -> bool:
+    """The key's owner, the lead of the key's team, or any admin may revoke it."""
+    if user.role == "admin" or user.id == str(key["user_id"]):
+        return True
+    return team is not None and user.id == str(team["owner_id"])
+
+
+def revoke_key(key_id: UUID, actor_id: str) -> dict | None:
+    """Revoke and audit in one transaction; None if the key was already revoked."""
+    rows = (
+        supabase.rpc(
+            "revoke_virtual_key", {"p_key_id": str(key_id), "p_actor_id": actor_id}
+        )
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
 def insert_key(key_data: dict) -> dict | None:
     """Insert one key and return the created row, if Supabase returns it."""
     created_keys = supabase.table("virtual_keys").insert(key_data).execute().data
@@ -146,6 +178,52 @@ def create_api_key(
         "expires_at": created_key["expires_at"],
         "created_at": created_key["created_at"],
     }
+
+
+class KeyIdRequest(BaseModel):
+    key_id: UUID
+
+
+@router.post("/revoke_api_key")
+def revoke_api_key(
+    payload: KeyIdRequest,
+    response: Response,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Stop a key at once. Later calls with it get 401."""
+    try:
+        key = find_key(payload.key_id)
+        team = get_project_team(key["project_id"]) if key else None
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up key"}
+
+    if key is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Key not found"}
+
+    if not can_revoke_key(user, key, team):
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {
+            "message": "Forbidden: only the key's owner, its team lead or an admin can revoke it"
+        }
+
+    if key["revoked_at"]:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "Key is already revoked"}
+
+    try:
+        revoked = revoke_key(payload.key_id, user.id)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to revoke key"}
+
+    # Another request revoked it between our check and the update.
+    if revoked is None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "Key is already revoked"}
+
+    return {"id": revoked["id"], "status": "revoked", "revoked_at": revoked["revoked_at"]}
 
 
 @router.get("/virtual_key/validate")

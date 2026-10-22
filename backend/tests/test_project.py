@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import UUID
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from supabase_auth.errors import AuthApiError
 
 from app import dependencies
+from app.budget import calculate_budget_status
 from app.main import app
 from app.routers import project
 
@@ -202,3 +204,59 @@ def test_empty_accessible_team_set_does_not_query_projects(monkeypatch):
 
     assert project.get_project_rows(team_ids=set()) == []
     fake_supabase.table.assert_not_called()
+
+
+def test_budget_without_limit_is_not_warning_or_blocked():
+    assert calculate_budget_status("12.345678", None) == {
+        "usage_ratio": None,
+        "warning": False,
+        "blocked": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "spend, warning, blocked",
+    [
+        ("79.99", False, False),
+        ("80.00", True, False),
+        ("100.00", True, True),
+        ("105.00", True, True),
+    ],
+)
+def test_budget_status_boundaries(spend, warning, blocked):
+    status = calculate_budget_status(spend, "100.00")
+
+    assert status["warning"] is warning
+    assert status["blocked"] is blocked
+
+
+def test_zero_budget_is_immediately_blocked():
+    assert calculate_budget_status(0, 0) == {
+        "usage_ratio": None,
+        "warning": True,
+        "blocked": True,
+    }
+
+
+def test_small_budget_uses_exact_decimal_threshold():
+    status = calculate_budget_status("0.024", "0.03")
+
+    assert status == {
+        "usage_ratio": Decimal("0.8"),
+        "warning": True,
+        "blocked": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "spend, budget, threshold",
+    [
+        (-1, 10, 0.8),
+        (0, -1, 0.8),
+        (0, 10, 0),
+        (0, 10, 1.01),
+    ],
+)
+def test_budget_status_rejects_invalid_values(spend, budget, threshold):
+    with pytest.raises(ValueError):
+        calculate_budget_status(spend, budget, threshold)

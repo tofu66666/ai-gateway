@@ -17,8 +17,15 @@ create table if not exists teams (
   owner_id           uuid not null,
   name               text not null,
   budget_per_month   numeric(12,2),
+  warning_threshold  numeric(5,4) not null default 0.8
+                       check (warning_threshold > 0 and warning_threshold <= 1),
   created_at         timestamptz not null default now()
 );
+
+-- CREATE TABLE IF NOT EXISTS does not add columns to an existing deployment.
+alter table teams
+  add column if not exists warning_threshold numeric(5,4) not null default 0.8
+    check (warning_threshold > 0 and warning_threshold <= 1);
 
 create table if not exists users (
   id          uuid primary key references auth.users(id),
@@ -47,8 +54,14 @@ create table if not exists projects (
   model_ids          uuid[] not null,
   spend_this_month   numeric(14,6) not null default 0,
   budget_per_month   numeric(12,2),
+  warning_threshold  numeric(5,4) not null default 0.8
+                       check (warning_threshold > 0 and warning_threshold <= 1),
   created_at         timestamptz not null default now()
 );
+
+alter table projects
+  add column if not exists warning_threshold numeric(5,4) not null default 0.8
+    check (warning_threshold > 0 and warning_threshold <= 1);
 
 create table if not exists virtual_keys (
   id          uuid primary key default gen_random_uuid(),

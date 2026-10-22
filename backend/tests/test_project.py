@@ -214,6 +214,114 @@ def test_empty_accessible_team_set_does_not_query_projects(monkeypatch):
     fake_supabase.table.assert_not_called()
 
 
+def set_patch_project(monkeypatch, *, owner_id="user-1", updated=None):
+    monkeypatch.setattr(project, "get_project_by_id", lambda project_id: PROJECT_ROW)
+    monkeypatch.setattr(
+        project,
+        "get_team_by_id",
+        lambda team_id: {"id": TEAM_ID, "owner_id": owner_id},
+    )
+    update = MagicMock(return_value=updated or PROJECT_ROW)
+    monkeypatch.setattr(project, "update_project", update)
+    return update
+
+
+def test_team_lead_updates_project_budget(current_user, monkeypatch):
+    current_user["role"] = "team_lead"
+    updated = {**PROJECT_ROW, "budget_per_month": 80, "warning_threshold": 0.75}
+    update = set_patch_project(monkeypatch, updated=updated)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}",
+        headers=AUTH,
+        json={"budget_per_month": 80, "warning_threshold": 0.75},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["usage_ratio"] == 0.3125
+    assert response.json()["warning"] is False
+    update.assert_called_once_with(
+        UUID(PROJECT_ID),
+        {"budget_per_month": 80.0, "warning_threshold": 0.75},
+    )
+
+
+def test_team_lead_removes_project_budget(current_user, monkeypatch):
+    current_user["role"] = "team_lead"
+    update = set_patch_project(
+        monkeypatch,
+        updated={**PROJECT_ROW, "budget_per_month": None},
+    )
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}",
+        headers=AUTH,
+        json={"budget_per_month": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["usage_ratio"] is None
+    update.assert_called_once_with(UUID(PROJECT_ID), {"budget_per_month": None})
+
+
+@pytest.mark.parametrize("role", ["admin", "user"])
+def test_admin_and_user_cannot_update_project(current_user, monkeypatch, role):
+    current_user["role"] = role
+    update = set_patch_project(monkeypatch)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+    )
+
+    assert response.status_code == 403
+    update.assert_not_called()
+
+
+def test_team_lead_cannot_update_another_teams_project(current_user, monkeypatch):
+    current_user["role"] = "team_lead"
+    update = set_patch_project(monkeypatch, owner_id="another-lead")
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+    )
+
+    assert response.status_code == 403
+    update.assert_not_called()
+
+
+def test_patch_unknown_project_returns_not_found(current_user, monkeypatch):
+    current_user["role"] = "team_lead"
+    monkeypatch.setattr(project, "get_project_by_id", lambda project_id: None)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload, status_code",
+    [
+        ({}, 400),
+        ({"warning_threshold": None}, 400),
+        ({"warning_threshold": 0}, 422),
+        ({"warning_threshold": 1.01}, 422),
+        ({"budget_per_month": -0.01}, 422),
+    ],
+)
+def test_patch_project_rejects_invalid_payload(
+    current_user, monkeypatch, payload, status_code
+):
+    lookup = MagicMock()
+    monkeypatch.setattr(project, "get_project_by_id", lookup)
+
+    response = client.patch(f"/projects/{PROJECT_ID}", headers=AUTH, json=payload)
+
+    assert response.status_code == status_code
+    lookup.assert_not_called()
+
+
 def test_budget_without_limit_is_not_warning_or_blocked():
     assert calculate_budget_status("12.345678", None) == {
         "usage_ratio": None,

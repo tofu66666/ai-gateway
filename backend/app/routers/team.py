@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 
+from app.budget import calculate_budget_status, get_team_spend
 from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import get_user_role, supabase
 
 router = APIRouter(tags=["team"])
+TEAM_DETAIL_COLUMNS = "id,name,owner_id,budget_per_month,warning_threshold"
 
 
 class TeamCreateRequest(BaseModel):
@@ -23,6 +25,46 @@ class TeamUserMappingRequest(BaseModel):
     user_id: str | None = None
     email: str | None = None
     can_create_key: bool = False
+
+
+def get_team_by_id(team_id: str) -> dict | None:
+    """Return one team with the fields needed for its budget response."""
+    response = (
+        supabase.table("teams")
+        .select(TEAM_DETAIL_COLUMNS)
+        .eq("id", team_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+def is_team_member(user_id: str, team_id: str) -> bool:
+    """Return whether the user has a membership row for the team."""
+    rows = (
+        supabase.table("user_team_mappings")
+        .select("user_id")
+        .eq("team_id", team_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+    return bool(rows)
+
+
+def with_team_budget_status(team: dict, spend) -> dict:
+    """Add computed monthly spend and budget state to a team response."""
+    return {
+        **team,
+        "spend_this_month": spend,
+        **calculate_budget_status(
+            spend=spend,
+            budget=team.get("budget_per_month"),
+            warning_threshold=team["warning_threshold"],
+        ),
+    }
 
 
 @router.post("/team/create", status_code=status.HTTP_200_OK)
@@ -196,6 +238,41 @@ def get_teams(
             if team_entry:
                 res[team_id] = team_entry[0]["name"]
     return res
+
+
+@router.get("/team/{team_id}", status_code=status.HTTP_200_OK)
+def get_team(
+    team_id: str,
+    response: Response,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return team details and the sum of its projects' monthly spend."""
+    try:
+        team = get_team_by_id(team_id)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up team"}
+
+    if team is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Team not found"}
+
+    if current_user.role != "admin" and current_user.id != str(team["owner_id"]):
+        try:
+            allowed = is_team_member(current_user.id, team_id)
+        except Exception:
+            response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return {"message": "Failed to check team membership"}
+        if not allowed:
+            response.status_code = status.HTTP_403_FORBIDDEN
+            return {"message": "Forbidden: only team members or an admin can view the team"}
+
+    try:
+        spend = get_team_spend(team_id)
+        return with_team_budget_status(team, spend)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to load team budget"}
 
 
 @router.put("/team/user", status_code=status.HTTP_200_OK)

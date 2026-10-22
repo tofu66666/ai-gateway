@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -5,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from supabase_auth.errors import AuthApiError
 
-from app import dependencies
+from app import budget, dependencies
 from app.main import app
 from app.routers import team
 
@@ -17,6 +18,7 @@ ENDPOINTS = [
     ("post", "/team/create", {"name": "Alpha"}),
     ("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"}),
     ("get", "/team", None),
+    ("get", "/team/team-1", None),
     ("put", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("delete", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("get", "/team/team-1/users", None),
@@ -102,6 +104,91 @@ def test_member_sees_only_their_teams(db):
     assert response.status_code == 200
     assert response.json() == {"team-1": "Alpha"}
     assert by_one_field.call_args_list[0].args == ("user_id", "member-1")
+
+
+TEAM_DETAIL = {
+    "id": "team-1",
+    "name": "Alpha",
+    "owner_id": "lead-1",
+    "budget_per_month": 10,
+    "warning_threshold": 0.8,
+}
+
+
+def set_team_detail(monkeypatch, *, spend="8.00", member=False):
+    monkeypatch.setattr(team, "get_team_by_id", lambda team_id: TEAM_DETAIL)
+    get_spend = MagicMock(return_value=Decimal(spend))
+    monkeypatch.setattr(team, "get_team_spend", get_spend)
+    membership = MagicMock(return_value=member)
+    monkeypatch.setattr(team, "is_team_member", membership)
+    return get_spend, membership
+
+
+def test_owner_sees_team_budget_status(db, monkeypatch):
+    get_spend, membership = set_team_detail(monkeypatch)
+
+    response = call("get", "/team/team-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        **TEAM_DETAIL,
+        "spend_this_month": 8,
+        "usage_ratio": 0.8,
+        "warning": True,
+        "blocked": False,
+    }
+    get_spend.assert_called_once_with("team-1")
+    membership.assert_not_called()
+
+
+def test_member_can_see_team_budget_status(db, monkeypatch):
+    db["user_id"], db["role"] = "member-1", "user"
+    _, membership = set_team_detail(monkeypatch, member=True)
+
+    response = call("get", "/team/team-1")
+
+    assert response.status_code == 200
+    membership.assert_called_once_with("member-1", "team-1")
+
+
+def test_admin_can_see_team_budget_without_membership(db, monkeypatch):
+    db["user_id"], db["role"] = "admin-1", "admin"
+    _, membership = set_team_detail(monkeypatch)
+
+    response = call("get", "/team/team-1")
+
+    assert response.status_code == 200
+    membership.assert_not_called()
+
+
+def test_outsider_cannot_see_team_budget(db, monkeypatch):
+    db["user_id"], db["role"] = "outsider-1", "user"
+    get_spend, _ = set_team_detail(monkeypatch)
+
+    response = call("get", "/team/team-1")
+
+    assert response.status_code == 403
+    get_spend.assert_not_called()
+
+
+def test_unknown_team_budget_is_not_found(db, monkeypatch):
+    monkeypatch.setattr(team, "get_team_by_id", lambda team_id: None)
+
+    assert call("get", "/team/team-9").status_code == 404
+
+
+def test_team_spend_sums_project_counters(monkeypatch):
+    projects = MagicMock()
+    projects.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[{"spend_this_month": "0.015"}, {"spend_this_month": "0.025"}]
+    )
+    fake_supabase = MagicMock()
+    fake_supabase.table.return_value = projects
+    monkeypatch.setattr(budget, "supabase", fake_supabase)
+
+    assert budget.get_team_spend("team-1") == Decimal("0.040")
+    projects.select.assert_called_once_with("spend_this_month")
+    projects.select.return_value.eq.assert_called_once_with("team_id", "team-1")
 
 
 def test_non_owner_cannot_change_owner(db, monkeypatch):

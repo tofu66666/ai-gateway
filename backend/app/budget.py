@@ -3,6 +3,8 @@
 from decimal import Decimal, InvalidOperation
 from typing import TypedDict
 
+from app.routers.db import supabase
+
 
 DEFAULT_WARNING_THRESHOLD = Decimal("0.8")
 
@@ -56,3 +58,18 @@ def calculate_budget_status(
         "warning": usage_ratio >= threshold_value,
         "blocked": usage_ratio >= 1,
     }
+
+
+def get_team_spend(team_id: str) -> Decimal:
+    """Return the sum of the team's existing monthly project counters."""
+    response = (
+        supabase.table("projects")
+        .select("spend_this_month")
+        .eq("team_id", team_id)
+        .execute()
+    )
+    rows = response.data or []
+    return sum(
+        (_as_decimal(row["spend_this_month"], "spend_this_month") for row in rows),
+        start=Decimal("0"),
+    )

@@ -19,6 +19,7 @@ ENDPOINTS = [
     ("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"}),
     ("get", "/team", None),
     ("get", "/team/team-1", None),
+    ("patch", "/team/team-1", {"budget_per_month": 20}),
     ("put", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("delete", "/team/user", {"team_id": "team-1", "user_id": "user-2"}),
     ("get", "/team/team-1/users", None),
@@ -189,6 +190,79 @@ def test_team_spend_sums_project_counters(monkeypatch):
     assert budget.get_team_spend("team-1") == Decimal("0.040")
     projects.select.assert_called_once_with("spend_this_month")
     projects.select.return_value.eq.assert_called_once_with("team_id", "team-1")
+
+
+@pytest.mark.parametrize(
+    "role,user_id",
+    [("team_lead", "lead-1"), ("admin", "admin-1")],
+)
+def test_authorised_user_updates_team_budget(db, monkeypatch, role, user_id):
+    db["role"], db["user_id"] = role, user_id
+    monkeypatch.setattr(team, "get_team_by_id", lambda team_id: TEAM_DETAIL)
+    updated = {**TEAM_DETAIL, "budget_per_month": 20, "warning_threshold": 0.75}
+    update = MagicMock(return_value=updated)
+    monkeypatch.setattr(team, "update_team", update)
+    monkeypatch.setattr(team, "get_team_spend", lambda team_id: Decimal("15"))
+
+    response = call(
+        "patch",
+        "/team/team-1",
+        {"budget_per_month": 20, "warning_threshold": 0.75},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["warning"] is True
+    assert response.json()["blocked"] is False
+    update.assert_called_once_with(
+        "team-1", {"budget_per_month": 20.0, "warning_threshold": 0.75}
+    )
+
+
+def test_team_lead_removes_team_budget(db, monkeypatch):
+    monkeypatch.setattr(team, "get_team_by_id", lambda team_id: TEAM_DETAIL)
+    updated = {**TEAM_DETAIL, "budget_per_month": None}
+    update = MagicMock(return_value=updated)
+    monkeypatch.setattr(team, "update_team", update)
+    monkeypatch.setattr(team, "get_team_spend", lambda team_id: Decimal("15"))
+
+    response = call("patch", "/team/team-1", {"budget_per_month": None})
+
+    assert response.status_code == 200
+    assert response.json()["blocked"] is False
+    update.assert_called_once_with("team-1", {"budget_per_month": None})
+
+
+@pytest.mark.parametrize(
+    "role,user_id",
+    [("team_lead", "other-lead"), ("user", "member-1")],
+)
+def test_unauthorised_user_cannot_update_team_budget(db, monkeypatch, role, user_id):
+    db["role"], db["user_id"] = role, user_id
+    monkeypatch.setattr(team, "get_team_by_id", lambda team_id: TEAM_DETAIL)
+    update = MagicMock()
+    monkeypatch.setattr(team, "update_team", update)
+
+    response = call("patch", "/team/team-1", {"budget_per_month": 20})
+
+    assert response.status_code == 403
+    update.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "payload,status_code",
+    [
+        ({}, 400),
+        ({"warning_threshold": None}, 400),
+        ({"warning_threshold": 0}, 422),
+        ({"warning_threshold": 1.01}, 422),
+        ({"budget_per_month": -0.01}, 422),
+    ],
+)
+def test_team_budget_update_validation(db, payload, status_code):
+    response = call("patch", "/team/team-1", payload)
+
+    assert response.status_code == status_code
+    db["supabase"].table.assert_not_called()
 
 
 def test_non_owner_cannot_change_owner(db, monkeypatch):

@@ -1,5 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, FiniteFloat
 
 from app.budget import calculate_budget_status, get_team_spend
 from app.dependencies import CurrentUser, get_current_user
@@ -20,6 +22,17 @@ class TeamChangeOwnerRequest(BaseModel):
     new_owner_id: str
 
 
+class TeamUpdateRequest(BaseModel):
+    budget_per_month: Annotated[
+        FiniteFloat | None,
+        Field(default=None, ge=0),
+    ]
+    warning_threshold: Annotated[
+        FiniteFloat | None,
+        Field(default=None, gt=0, le=1),
+    ]
+
+
 class TeamUserMappingRequest(BaseModel):
     team_id: str
     user_id: str | None = None
@@ -34,6 +47,18 @@ def get_team_by_id(team_id: str) -> dict | None:
         .select(TEAM_DETAIL_COLUMNS)
         .eq("id", team_id)
         .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+def update_team(team_id: str, changes: dict) -> dict | None:
+    """Update one team and return the updated database row."""
+    response = (
+        supabase.table("teams")
+        .update(changes)
+        .eq("id", team_id)
         .execute()
     )
     rows = response.data or []
@@ -273,6 +298,60 @@ def get_team(
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to load team budget"}
+
+
+@router.patch("/team/{team_id}", status_code=status.HTTP_200_OK)
+def patch_team(
+    team_id: str,
+    payload: TeamUpdateRequest,
+    response: Response,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Update monthly budget settings for a team lead's team or an admin."""
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "At least one team field must be provided"}
+    if "warning_threshold" in changes and changes["warning_threshold"] is None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "warning_threshold cannot be null"}
+
+    try:
+        team = get_team_by_id(team_id)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up team"}
+
+    if team is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Team not found"}
+
+    is_admin = current_user.role == "admin"
+    is_team_lead = (
+        current_user.role == "team_lead"
+        and current_user.id == str(team["owner_id"])
+    )
+    if not (is_admin or is_team_lead):
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {
+            "message": "Forbidden: only the team lead or an admin can update team budgets"
+        }
+
+    try:
+        updated_team = update_team(team_id, changes)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to update team"}
+
+    if updated_team is None:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Team update did not return a team"}
+
+    try:
+        return with_team_budget_status(updated_team, get_team_spend(team_id))
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Team updated but failed to load its budget status"}
 
 
 @router.put("/team/user", status_code=status.HTTP_200_OK)

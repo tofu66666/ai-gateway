@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
-from app import config, request_log
+from app import budget, config, request_log
 from app.routers.db import supabase
 from app.routers.virtual_key import validate_virtual_key
 
@@ -79,8 +79,22 @@ def get_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
     }
 
 
+def require_budget_available(key: dict = Depends(get_key)) -> dict:
+    """Reject a new request before any provider call if its budget is exhausted."""
+    try:
+        exhausted = budget.get_exhausted_budget(str(key["project_id"]))
+    except Exception as exc:
+        raise HTTPException(503, "Could not verify monthly budget") from exc
+
+    if exhausted is not None:
+        scope = exhausted["scope"]
+        name = exhausted["name"]
+        raise HTTPException(429, f"Monthly {scope} budget '{name}' is exhausted")
+    return key
+
+
 @router.post("/chat/completions")
-def chat_completions(body: dict, key: dict=Depends(get_key)):
+def chat_completions(body: dict, key: dict=Depends(require_budget_available)):
     alias=body.get("model")
     if not alias:
         raise HTTPException(400, "'model' is required")

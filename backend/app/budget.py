@@ -1,7 +1,7 @@
 """Shared monthly-budget status calculations."""
 
 from decimal import Decimal, InvalidOperation
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from app.routers.db import supabase
 
@@ -15,6 +15,12 @@ class BudgetStatus(TypedDict):
     usage_ratio: Decimal | None
     warning: bool
     blocked: bool
+
+
+class ExhaustedBudget(TypedDict):
+    scope: Literal["project", "team"]
+    id: str
+    name: str
 
 
 def _as_decimal(value: DecimalInput, field_name: str) -> Decimal:
@@ -73,3 +79,58 @@ def get_team_spend(team_id: str) -> Decimal:
         (_as_decimal(row["spend_this_month"], "spend_this_month") for row in rows),
         start=Decimal("0"),
     )
+
+
+def get_exhausted_budget(project_id: str) -> ExhaustedBudget | None:
+    """Return the exhausted project or team budget for a new request."""
+    project_response = (
+        supabase.table("projects")
+        .select(
+            "id,name,team_id,budget_per_month,spend_this_month,warning_threshold"
+        )
+        .eq("id", project_id)
+        .limit(1)
+        .execute()
+    )
+    projects = project_response.data or []
+    if not projects:
+        raise ValueError("Project not found")
+
+    project = projects[0]
+    project_status = calculate_budget_status(
+        spend=project["spend_this_month"],
+        budget=project.get("budget_per_month"),
+        warning_threshold=project["warning_threshold"],
+    )
+    if project_status["blocked"]:
+        return {
+            "scope": "project",
+            "id": str(project["id"]),
+            "name": str(project["name"]),
+        }
+
+    team_id = str(project["team_id"])
+    team_response = (
+        supabase.table("teams")
+        .select("id,name,budget_per_month,warning_threshold")
+        .eq("id", team_id)
+        .limit(1)
+        .execute()
+    )
+    teams = team_response.data or []
+    if not teams:
+        raise ValueError("Team not found")
+
+    team = teams[0]
+    team_status = calculate_budget_status(
+        spend=get_team_spend(team_id),
+        budget=team.get("budget_per_month"),
+        warning_threshold=team["warning_threshold"],
+    )
+    if team_status["blocked"]:
+        return {
+            "scope": "team",
+            "id": str(team["id"]),
+            "name": str(team["name"]),
+        }
+    return None

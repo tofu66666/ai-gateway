@@ -15,13 +15,21 @@ from app.routers import project
 AUTH = {"Authorization": "Bearer good-token"}
 TEAM_ID = "11111111-1111-1111-1111-111111111111"
 OTHER_TEAM_ID = "22222222-2222-2222-2222-222222222222"
+PROJECT_ID = "33333333-3333-3333-3333-333333333333"
 PROJECT_ROW = {
-    "id": "33333333-3333-3333-3333-333333333333",
+    "id": PROJECT_ID,
     "team_id": TEAM_ID,
     "name": "Alpha Project",
     "model_ids": [],
     "budget_per_month": 100,
     "spend_this_month": 25,
+    "warning_threshold": 0.8,
+}
+PROJECT_RESPONSE = {
+    **PROJECT_ROW,
+    "usage_ratio": Decimal("0.25"),
+    "warning": False,
+    "blocked": False,
 }
 
 client = TestClient(app)
@@ -65,7 +73,7 @@ def test_invalid_token_is_unauthorised(current_user):
 
 def test_admin_can_list_all_projects(current_user, monkeypatch):
     current_user["role"] = "admin"
-    get_rows = MagicMock(return_value=[PROJECT_ROW])
+    get_rows = MagicMock(return_value=[PROJECT_RESPONSE])
     get_team_ids = MagicMock()
     monkeypatch.setattr(project, "get_project_rows", get_rows)
     monkeypatch.setattr(project, "get_accessible_team_ids", get_team_ids)
@@ -73,33 +81,33 @@ def test_admin_can_list_all_projects(current_user, monkeypatch):
     response = client.get("/projects", headers=AUTH)
 
     assert response.status_code == 200
-    assert response.json() == [PROJECT_ROW]
+    assert response.json() == [PROJECT_RESPONSE]
     get_rows.assert_called_once_with(team_id=None)
     get_team_ids.assert_not_called()
 
 
 def test_admin_can_filter_projects_by_team(current_user, monkeypatch):
     current_user["role"] = "admin"
-    get_rows = MagicMock(return_value=[PROJECT_ROW])
+    get_rows = MagicMock(return_value=[PROJECT_RESPONSE])
     monkeypatch.setattr(project, "get_project_rows", get_rows)
 
     response = client.get(f"/projects?team_id={TEAM_ID}", headers=AUTH)
 
     assert response.status_code == 200
-    assert response.json() == [PROJECT_ROW]
+    assert response.json() == [PROJECT_RESPONSE]
     get_rows.assert_called_once_with(team_id=UUID(TEAM_ID))
 
 
 def test_member_sees_projects_from_accessible_teams(current_user, monkeypatch):
     get_team_ids = MagicMock(return_value={TEAM_ID, OTHER_TEAM_ID})
-    get_rows = MagicMock(return_value=[PROJECT_ROW])
+    get_rows = MagicMock(return_value=[PROJECT_RESPONSE])
     monkeypatch.setattr(project, "get_accessible_team_ids", get_team_ids)
     monkeypatch.setattr(project, "get_project_rows", get_rows)
 
     response = client.get("/projects", headers=AUTH)
 
     assert response.status_code == 200
-    assert response.json() == [PROJECT_ROW]
+    assert response.json() == [PROJECT_RESPONSE]
     get_team_ids.assert_called_once_with("user-1")
     get_rows.assert_called_once_with(team_ids={TEAM_ID, OTHER_TEAM_ID})
 
@@ -110,13 +118,13 @@ def test_member_can_filter_by_an_accessible_team(current_user, monkeypatch):
         "get_accessible_team_ids",
         MagicMock(return_value={TEAM_ID}),
     )
-    get_rows = MagicMock(return_value=[PROJECT_ROW])
+    get_rows = MagicMock(return_value=[PROJECT_RESPONSE])
     monkeypatch.setattr(project, "get_project_rows", get_rows)
 
     response = client.get(f"/projects?team_id={TEAM_ID}", headers=AUTH)
 
     assert response.status_code == 200
-    assert response.json() == [PROJECT_ROW]
+    assert response.json() == [PROJECT_RESPONSE]
     get_rows.assert_called_once_with(team_id=UUID(TEAM_ID))
 
 
@@ -192,7 +200,7 @@ def test_project_query_is_limited_to_accessible_teams(monkeypatch):
 
     result = project.get_project_rows(team_ids={OTHER_TEAM_ID, TEAM_ID})
 
-    assert result == [PROJECT_ROW]
+    assert result == [PROJECT_RESPONSE]
     projects_table.select.assert_called_once_with(project.PROJECT_READ_COLUMNS)
     selected.in_.assert_called_once_with("team_id", [TEAM_ID, OTHER_TEAM_ID])
     filtered.order.assert_called_once_with("name")

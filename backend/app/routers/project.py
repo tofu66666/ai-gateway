@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, FiniteFloat, StringConstraints
 
+from app.budget import calculate_budget_status
 from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import get_user_id, get_user_role, supabase
 
@@ -12,7 +13,7 @@ router = APIRouter(tags=["project"])
 security = HTTPBearer()
 
 PROJECT_READ_COLUMNS = (
-    "id,team_id,name,model_ids,budget_per_month,spend_this_month"
+    "id,team_id,name,model_ids,budget_per_month,spend_this_month,warning_threshold"
 )
 
 
@@ -115,7 +116,32 @@ def get_project_rows(
         query = query.in_("team_id", sorted(team_ids))
 
     project_response = query.order("name").execute()
-    return project_response.data or []
+    return [with_budget_status(row) for row in project_response.data or []]
+
+
+def get_project_by_id(project_id: UUID) -> dict | None:
+    """Return one project with the fields needed for access and budget checks."""
+    response = (
+        supabase.table("projects")
+        .select(PROJECT_READ_COLUMNS)
+        .eq("id", str(project_id))
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+def with_budget_status(project: dict) -> dict:
+    """Add the derived monthly-budget state to a project response."""
+    return {
+        **project,
+        **calculate_budget_status(
+            spend=project["spend_this_month"],
+            budget=project.get("budget_per_month"),
+            warning_threshold=project["warning_threshold"],
+        ),
+    }
 
 
 def get_model_rows(model_ids: list[UUID]) -> list[dict]:

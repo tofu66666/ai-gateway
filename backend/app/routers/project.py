@@ -140,7 +140,10 @@ def get_project_by_id(project_id: UUID) -> dict | None:
         .execute()
     )
     rows = response.data or []
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    else:
+        return None
 
 
 def with_budget_status(project: dict) -> dict:
@@ -200,7 +203,10 @@ def update_project(project_id: UUID, changes: dict) -> dict | None:
         .execute()
     )
     rows = response.data or []
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    else:
+        return None
 
 
 @router.get("/projects", status_code=status.HTTP_200_OK)

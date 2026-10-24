@@ -47,7 +47,10 @@ def get_model_by_alias(alias: str) -> dict | None:
         .execute()
         .data
     )
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    else:
+        return None
     # rows[0] is dictionary
 
 # By using validate virtual key, it substitui find_key and verify_key

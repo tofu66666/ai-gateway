@@ -50,7 +50,10 @@ def get_team_by_id(team_id: str) -> dict | None:
         .execute()
     )
     rows = response.data or []
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    else:
+        return None
 
 
 def update_team(team_id: str, changes: dict) -> dict | None:
@@ -62,7 +65,10 @@ def update_team(team_id: str, changes: dict) -> dict | None:
         .execute()
     )
     rows = response.data or []
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    else:
+        return None
 
 
 def is_team_member(user_id: str, team_id: str) -> bool:

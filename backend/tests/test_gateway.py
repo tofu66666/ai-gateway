@@ -60,13 +60,13 @@ def test_invalid_key(monkeypatch):
     monkeypatch.setattr(gateway, "validate_virtual_key", reject)
     assert post().status_code == 401
 
-# Test expired key rejected: 403
+# Test expired key rejected: 401
 def test_model(monkeypatch):
     def expired(response, credentials):
-        response.status_code=403
+        response.status_code=401
         return {"message":"Virtual key expired"}
     monkeypatch.setattr(gateway, "validate_virtual_key", expired)    
-    assert post().status_code == 403
+    assert post().status_code == 401
 
 # Test get_key 
 def test_get_key(monkeypatch):

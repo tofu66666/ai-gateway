@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Response
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 from supabase_auth.errors import AuthApiError
 
@@ -137,6 +139,23 @@ def test_default_expiry_is_left_to_database(db):
     assert "expires_at" not in db["inserted"][0]
 
 
+def test_name_is_stored(db):
+    response = create({"project_id": PROJECT_ID, "name": "billing-bot"})
+
+    assert response.status_code == 201
+    assert db["inserted"][0]["name"] == "billing-bot"
+
+
+def test_name_is_optional(db):
+    create()
+
+    assert "name" not in db["inserted"][0]
+
+
+def test_empty_name_is_rejected(db):
+    assert create({"project_id": PROJECT_ID, "name": ""}).status_code == 422
+
+
 def test_past_expiry_is_rejected(db):
     expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
 
@@ -184,3 +203,56 @@ def test_get_project_team_returns_none_for_unknown_project(monkeypatch):
     monkeypatch.setattr(virtual_key, "supabase", fake)
 
     assert virtual_key.get_project_team(PROJECT_ID) is None
+
+
+def validate(monkeypatch, key_row):
+    """Call validate_virtual_key with a stored key row (None for an unknown key)."""
+    fake = MagicMock()
+    query = fake.table.return_value.select.return_value.eq.return_value
+    query.execute.side_effect = [
+        SimpleNamespace(data=[key_row] if key_row else []),
+        SimpleNamespace(data=[{"team_id": "team-1"}]),
+    ]
+    monkeypatch.setattr(virtual_key, "supabase", fake)
+    response = Response()
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="mq-k_raw")
+    body = virtual_key.validate_virtual_key(response, credentials)
+    return response.status_code, body
+
+
+def stored_key(**overrides):
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    return {
+        "project_id": PROJECT_ID,
+        "user_id": "owner-1",
+        "expires_at": future,
+        "revoked_at": None,
+        **overrides,
+    }
+
+
+def test_active_key_is_valid(monkeypatch):
+    status_code, body = validate(monkeypatch, stored_key())
+
+    assert status_code == 200
+    assert body["team_id"] == "team-1"
+
+
+def test_unknown_key_is_unauthorised(monkeypatch):
+    assert validate(monkeypatch, None)[0] == 401
+
+
+def test_revoked_key_is_unauthorised(monkeypatch):
+    status_code, body = validate(monkeypatch, stored_key(revoked_at="2026-10-20T00:00:00+00:00"))
+
+    assert status_code == 401
+    assert body == {"message": "Virtual key revoked"}
+
+
+def test_expired_key_is_unauthorised(monkeypatch):
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+
+    status_code, body = validate(monkeypatch, stored_key(expires_at=past))
+
+    assert status_code == 401
+    assert body == {"message": "Virtual key expired"}

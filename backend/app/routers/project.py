@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, FiniteFloat, StringConstraints
 
+from app.budget import calculate_budget_status
 from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import get_user_id, get_user_role, supabase
 
@@ -12,7 +13,7 @@ router = APIRouter(tags=["project"])
 security = HTTPBearer()
 
 PROJECT_READ_COLUMNS = (
-    "id,team_id,name,model_ids,budget_per_month,spend_this_month"
+    "id,team_id,name,model_ids,budget_per_month,spend_this_month,warning_threshold"
 )
 
 
@@ -31,6 +32,17 @@ class ProjectCreateRequest(BaseModel):
     budget_per_month: Annotated[
         FiniteFloat | None,
         Field(default=None, ge=0),
+    ]
+
+
+class ProjectUpdateRequest(BaseModel):
+    budget_per_month: Annotated[
+        FiniteFloat | None,
+        Field(default=None, ge=0),
+    ]
+    warning_threshold: Annotated[
+        FiniteFloat | None,
+        Field(default=None, gt=0, le=1),
     ]
 
 
@@ -115,7 +127,35 @@ def get_project_rows(
         query = query.in_("team_id", sorted(team_ids))
 
     project_response = query.order("name").execute()
-    return project_response.data or []
+    return [with_budget_status(row) for row in project_response.data or []]
+
+
+def get_project_by_id(project_id: UUID) -> dict | None:
+    """Return one project with the fields needed for access and budget checks."""
+    response = (
+        supabase.table("projects")
+        .select(PROJECT_READ_COLUMNS)
+        .eq("id", str(project_id))
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    if rows:
+        return rows[0]
+    else:
+        return None
+
+
+def with_budget_status(project: dict) -> dict:
+    """Add the derived monthly-budget state to a project response."""
+    return {
+        **project,
+        **calculate_budget_status(
+            spend=project["spend_this_month"],
+            budget=project.get("budget_per_month"),
+            warning_threshold=project["warning_threshold"],
+        ),
+    }
 
 
 def get_model_rows(model_ids: list[UUID]) -> list[dict]:
@@ -152,6 +192,21 @@ def insert_project(project_data: dict) -> dict | None:
         return None
 
     return created_projects[0]
+
+
+def update_project(project_id: UUID, changes: dict) -> dict | None:
+    """Update one project and return the updated database row."""
+    response = (
+        supabase.table("projects")
+        .update(changes)
+        .eq("id", str(project_id))
+        .execute()
+    )
+    rows = response.data or []
+    if rows:
+        return rows[0]
+    else:
+        return None
 
 
 @router.get("/projects", status_code=status.HTTP_200_OK)
@@ -236,3 +291,56 @@ def create_project(
         return {"message": "Project creation did not return a project"}
 
     return created_project
+
+
+@router.patch("/projects/{project_id}", status_code=status.HTTP_200_OK)
+def patch_project(
+    project_id: UUID,
+    payload: ProjectUpdateRequest,
+    response: Response,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Update budget settings for a project owned by the caller's team."""
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "At least one project field must be provided"}
+    if "warning_threshold" in changes and changes["warning_threshold"] is None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "warning_threshold cannot be null"}
+
+    try:
+        project = get_project_by_id(project_id)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up project"}
+
+    if project is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"message": "Project not found"}
+
+    if current_user.role != "team_lead":
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Forbidden: only the team lead can update project budgets"}
+
+    try:
+        team = get_team_by_id(UUID(str(project["team_id"])))
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to look up team"}
+
+    if team is None or current_user.id != str(team["owner_id"]):
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return {"message": "Forbidden: only the team lead can update project budgets"}
+
+    try:
+        updated_project = update_project(project_id, changes)
+    except Exception:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Failed to update project"}
+
+    if updated_project is None:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Project update did not return a project"}
+
+    return with_budget_status(updated_project)

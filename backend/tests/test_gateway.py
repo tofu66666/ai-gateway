@@ -8,7 +8,7 @@ import pytest
 import httpx
 
 from app.main import app
-from app import request_log
+from app import budget, request_log
 from app.routers import gateway
 
 client=TestClient(app)
@@ -24,7 +24,9 @@ USAGE_REPLY={**REPLY,"usage":{"prompt_tokens":1000, "completion_tokens":500}}
 
 def fake_auth(monkeypatch, key=KEY, model=MODEL):
     # Skip the key check 
-    monkeypatch.setitem(app.dependency_overrides, gateway.get_key, lambda: key)
+    monkeypatch.setitem(
+        app.dependency_overrides, gateway.require_budget_available, lambda: key
+    )
     monkeypatch.setattr(gateway, "get_model_by_alias", lambda alias: model)
 
 def fake_log(monkeypatch):
@@ -82,6 +84,112 @@ def test_get_key(monkeypatch):
     monkeypatch.setattr(gateway,"get_proj_m_ids", lambda project_id:["m1"])
     cred=HTTPAuthorizationCredentials(scheme="Bearer",credentials="vktest")
     assert gateway.get_key(cred)==KEY
+
+
+@pytest.mark.parametrize(
+    "exhausted",
+    [
+        {"scope": "project", "id": "p1", "name": "Search"},
+        {"scope": "team", "id": "t1", "name": "Platform"},
+    ],
+)
+def test_exhausted_budget_rejected_before_provider(monkeypatch, exhausted):
+    fake_auth(monkeypatch)
+    app.dependency_overrides.pop(gateway.require_budget_available)
+    monkeypatch.setitem(app.dependency_overrides, gateway.get_key, lambda: KEY)
+    monkeypatch.setattr(budget, "get_exhausted_budget", lambda project_id: exhausted)
+    provider = MagicMock()
+    monkeypatch.setattr(gateway, "call_prov", provider)
+    logged = fake_log(monkeypatch)
+
+    response = post()
+
+    assert response.status_code == 429
+    assert exhausted["scope"] in response.json()["detail"]
+    assert exhausted["name"] in response.json()["detail"]
+    provider.assert_not_called()
+    assert logged == []
+
+
+def test_budget_check_failure_stops_provider_call(monkeypatch):
+    fake_auth(monkeypatch)
+    app.dependency_overrides.pop(gateway.require_budget_available)
+    monkeypatch.setitem(app.dependency_overrides, gateway.get_key, lambda: KEY)
+    monkeypatch.setattr(
+        budget,
+        "get_exhausted_budget",
+        MagicMock(side_effect=RuntimeError("database down")),
+    )
+    provider = MagicMock()
+    monkeypatch.setattr(gateway, "call_prov", provider)
+
+    response = post()
+
+    assert response.status_code == 503
+    provider.assert_not_called()
+
+
+def budget_table(row):
+    table = MagicMock()
+    query = table.select.return_value.eq.return_value.limit.return_value
+    query.execute.return_value.data = [row]
+    return table
+
+
+def test_exhausted_project_budget_is_identified(monkeypatch):
+    project_table = budget_table(
+        {
+            "id": "p1",
+            "name": "Search",
+            "team_id": "t1",
+            "budget_per_month": "0.03",
+            "spend_this_month": "0.03",
+            "warning_threshold": "0.8",
+        }
+    )
+    fake_supabase = MagicMock()
+    fake_supabase.table.return_value = project_table
+    monkeypatch.setattr(budget, "supabase", fake_supabase)
+
+    assert budget.get_exhausted_budget("p1") == {
+        "scope": "project",
+        "id": "p1",
+        "name": "Search",
+    }
+    fake_supabase.table.assert_called_once_with("projects")
+
+
+@pytest.mark.parametrize("team_budget,expected_scope", [("10", "team"), ("11", None)])
+def test_team_budget_block_lifts_when_raised(monkeypatch, team_budget, expected_scope):
+    project_table = budget_table(
+        {
+            "id": "p1",
+            "name": "Search",
+            "team_id": "t1",
+            "budget_per_month": None,
+            "spend_this_month": "0",
+            "warning_threshold": "0.8",
+        }
+    )
+    team_table = budget_table(
+        {
+            "id": "t1",
+            "name": "Platform",
+            "budget_per_month": team_budget,
+            "warning_threshold": "0.8",
+        }
+    )
+    fake_supabase = MagicMock()
+    fake_supabase.table.side_effect = lambda name: {
+        "projects": project_table,
+        "teams": team_table,
+    }[name]
+    monkeypatch.setattr(budget, "supabase", fake_supabase)
+    monkeypatch.setattr(budget, "get_team_spend", lambda team_id: 10)
+
+    exhausted = budget.get_exhausted_budget("p1")
+
+    assert (exhausted or {}).get("scope") == expected_scope
 
 
 # Request validation

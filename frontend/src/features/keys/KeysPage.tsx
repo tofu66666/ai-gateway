@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { queryKeys, useKeys } from '@/api/hooks'
 import { revokeKey } from '@/api/keys'
+import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { RotateKeyDialog } from '@/features/keys/RotateKeyDialog'
 import { CreateKeyDialog } from '@/features/playground/CreateKeyDialog'
 import { formatDate } from '@/lib/format'
 
@@ -33,6 +35,7 @@ function statusVariant(status: string) {
 }
 
 export function KeysPage() {
+  const user = useCurrentUser()
   const keys = useKeys()
   const queryClient = useQueryClient()
   const rows = keys.data ?? []
@@ -137,26 +140,32 @@ export function KeysPage() {
                     </Badge>
                   </TableCell>
 
-                  <TableCell className="text-right">
+                  <TableCell>
                     {key.status === 'active' ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          revoke.isPending &&
+                      <div className="flex justify-end gap-2">
+                        {key.user_id === user.id && (
+                          <RotateKeyDialog keyId={key.id} />
+                        )}
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            revoke.isPending &&
+                            revoke.variables === key.id
+                          }
+                          onClick={() => handleRevoke(key.id)}
+                        >
+                          <Trash2 />
+                          {revoke.isPending &&
                           revoke.variables === key.id
-                        }
-                        onClick={() => handleRevoke(key.id)}
-                      >
-                        <Trash2 />
-                        {revoke.isPending &&
-                        revoke.variables === key.id
-                          ? 'Revoking...'
-                          : 'Revoke'}
-                      </Button>
+                            ? 'Revoking...'
+                            : 'Revoke'}
+                        </Button>
+                      </div>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <div className="text-right text-muted-foreground">—</div>
                     )}
                   </TableCell>
                 </TableRow>

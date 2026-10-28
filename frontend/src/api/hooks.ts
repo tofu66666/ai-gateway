@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { getKeys } from './keys'
 import { getModels, getProjects } from './projects'
 import { getRequests } from './requests'
 import { getTeamMembers, getTeams, getTeamUsage, type Team } from './teams'
@@ -10,6 +11,7 @@ export const queryKeys = {
   allProjects: ['projects'],
   projects: (teamId?: string) => ['projects', teamId ?? 'all'],
   models: ['models'],
+  keys: ['keys'],
   requests: ['requests'],
   teamUsage: (teamIds: string[]) => ['team-usage', ...teamIds],
 }
@@ -34,6 +36,10 @@ export function useProjects(teamId?: string) {
 
 export function useModels() {
   return useQuery({ queryKey: queryKeys.models, queryFn: getModels })
+}
+
+export function useKeys() {
+  return useQuery({ queryKey: queryKeys.keys, queryFn: getKeys })
 }
 
 export function useRequests() {

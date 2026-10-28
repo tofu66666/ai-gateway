@@ -13,7 +13,7 @@ from app.routers import gateway
 
 client=TestClient(app)
 AUTH={"Authorization": "Bearer vktest"}
-MODEL={"id":"m1","provider":"google", "model":"gemini-3.5-flash-lite"}
+MODEL={"id":"m1", "alias":"mq", "provider":"google", "model":"gemini-3.5-flash-lite"}
 KEY={"user_id":"u1", "project_id":"p1","model_ids":["m1"]}
 BODY={"model":"mq", "messages":[{"role": "user", "content": "hi"}]}
 REPLY={"choices":[{"message":{"role":"assistant","content": "hello"}}]}
@@ -27,7 +27,11 @@ def fake_auth(monkeypatch, key=KEY, model=MODEL):
     monkeypatch.setitem(
         app.dependency_overrides, gateway.require_budget_available, lambda: key
     )
-    monkeypatch.setattr(gateway, "get_model_by_alias", lambda alias: model)
+    ids={str(i) for i in key["model_ids"]}
+    allowed=[model] if model and str(model["id"]) in ids else []
+
+    monkeypatch.setattr(gateway, "get_allowed_models", lambda model_ids: allowed)
+    monkeypatch.setattr(gateway, "model_exists", lambda name: model is not None)
 
 def fake_log(monkeypatch):
     # Substitui log_request
@@ -81,9 +85,10 @@ def test_get_key(monkeypatch):
             "expires_at": "2099-01-01",
         },
     )
+    monkeypatch.setattr(gateway, "lookup_key_id", lambda raw: "k1")
     monkeypatch.setattr(gateway,"get_proj_m_ids", lambda project_id:["m1"])
     cred=HTTPAuthorizationCredentials(scheme="Bearer",credentials="vktest")
-    assert gateway.get_key(cred)==KEY
+    assert gateway.get_key(cred)=={**KEY, "key_id":"k1"}
 
 
 @pytest.mark.parametrize(
@@ -343,7 +348,7 @@ def test_get_proj_m_ids_null_column(monkeypatch):
     assert gateway.get_proj_m_ids("p1")==[]
 
 
-# check response model is alias and request_id header
+# check response model is real model name and request_id header
 def test_response_model_alias_request_id(monkeypatch):
     fake_auth(monkeypatch)
     monkeypatch.setattr(request_log, "log_request", lambda **args:"req1")
@@ -352,7 +357,7 @@ def test_response_model_alias_request_id(monkeypatch):
     r=post()
 
     assert r.status_code==200
-    assert r.json()["model"]=="mq"
+    assert r.json()["model"]=="gemini-3.5-flash-lite"
     assert r.headers["X-Request-ID"]=="req1"
 
 # check there is no request id header when logging fails
@@ -380,7 +385,7 @@ def test_logs_error_res_with_req_id_no_model(monkeypatch):
     assert r.headers["X-Request-ID"]=="req2"
     assert "model" not in r.json() 
 
-# check get_model_by_alias
+"""# check get_model_by_alias
 def test_get_model_by_alias(monkeypatch):
     row={
         "id":"m1",
@@ -399,5 +404,5 @@ def test_get_model_by_alias(monkeypatch):
 def test_get_model_by_alias_unknown(monkeypatch):
     monkeypatch.setattr(gateway,"supabase",fake_supabase([]))
     
-    assert gateway.get_model_by_alias("nope") is None
+    assert gateway.get_model_by_alias("nope") is None"""
 

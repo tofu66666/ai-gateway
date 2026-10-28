@@ -1,4 +1,5 @@
 # H18IALMOND 10-request logging
+# H18IALMOND 17-request_id and key_id
 
 import logging
 from app.routers.db import supabase
@@ -30,6 +31,7 @@ def build_record(
     payload: object,
     status_code: int,
     latency_ms: int,
+    request_id: str | None=None,
 ) -> dict:
     # Only in case of valid response: status_code<400
     vr=status_code<400
@@ -49,7 +51,7 @@ def build_record(
     else:
         cost=0.0
     
-    return{
+    record={
         "project_id":str(key["project_id"]),
         "model_id":str(model["id"]),
         "user_id":str(key["user_id"]),
@@ -59,6 +61,12 @@ def build_record(
         "status":str(status_code),
         "latency": latency_ms,
     }
+    if request_id is not None:
+        record["id"]=request_id
+    # Record the virtual key
+    if key.get("key_id") is not None:
+        record["key_id"]=str(key["key_id"])
+    return record 
 
 
 def log_request(
@@ -68,9 +76,10 @@ def log_request(
     payload: object,
     status_code: int,
     latency_ms: int,
+    request_id: str | None=None,
 ) -> str | None:
     # Request logging and accumlated cost caclulation
-    request_id=None
+    req_id=None
     try:
         record=build_record(
             key=key,
@@ -78,10 +87,14 @@ def log_request(
             payload=payload,
             status_code=status_code,
             latency_ms=latency_ms,
+            request_id=request_id,
         )
         res=supabase.table("requests").insert(record).execute()
+        
         if res.data:
-            request_id=res.data[0]["id"]
+            req_id=res.data[0]["id"]
+        else:
+            req_id=request_id
         
         # If there were a cost, update the spend_this_month
         cost=record["cost"]
@@ -94,7 +107,7 @@ def log_request(
         
     except Exception:
         logger.exception("Failed to log request or update project spend")
-    return request_id
+    return req_id
 
 
 

@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 
 import { useCurrentUser } from '@/auth/useAuth'
@@ -21,11 +22,14 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { cn } from '@/lib/utils'
 import {
   groupKey,
+  sortGroups,
   totalsByGroup,
   type GroupBy,
   type GroupTotal,
+  type SortColumn,
 } from './aggregate'
 import { BreakdownFilters } from './BreakdownFilters'
 import { useBreakdownData } from './useBreakdownData'
@@ -38,6 +42,19 @@ const groupLabels: Record<GroupBy, string> = {
   user: 'User',
   project: 'Project',
 }
+
+// The table's columns after the group's name.
+const numberColumns: { column: SortColumn; label: string }[] = [
+  { column: 'requests', label: 'Requests' },
+  { column: 'inputTokens', label: 'In tokens' },
+  { column: 'outputTokens', label: 'Out tokens' },
+  { column: 'cost', label: 'Cost' },
+  { column: 'share', label: 'Share' },
+]
+const sortColumns: SortColumn[] = [
+  'name',
+  ...numberColumns.map((entry) => entry.column),
+]
 
 // H18IALMOND-27: spend in the top bar's time window, split by model, team,
 // user or project (3.b Storyboard 3, frame 2). The grouping and the filters
@@ -56,6 +73,11 @@ export function BreakdownPage() {
     groupings.map((by) => [by, params.get(by) ?? 'all']),
   ) as Record<GroupBy, string>
   const filtersOn = groupings.some((by) => filters[by] !== 'all')
+  // Most expensive first until a header is clicked; the order is in the URL.
+  const sortParam = params.get('sort')
+  const sortColumn =
+    sortColumns.find((column) => column === sortParam) ?? 'cost'
+  const descending = params.get('dir') !== 'asc'
 
   function updateParams(change: (next: URLSearchParams) => void) {
     setParams(
@@ -74,6 +96,17 @@ export function BreakdownPage() {
       else next.set(by, value)
       // A project belongs to one team, so a new team clears it.
       if (by === 'team') next.delete('project')
+    })
+  }
+
+  // The same header flips the order; another starts with names A to Z and
+  // numbers largest first.
+  function sortBy(column: SortColumn) {
+    updateParams((next) => {
+      const nextDescending =
+        column === sortColumn ? !descending : column !== 'name'
+      next.set('sort', column)
+      next.set('dir', nextDescending ? 'desc' : 'asc')
     })
   }
 
@@ -105,6 +138,9 @@ export function BreakdownPage() {
       ),
   )
   const { groups, total } = totalsByGroup(shown, groupBy)
+  const sorted = sortGroups(groups, sortColumn, descending, (key) =>
+    nameOf(groupBy, key),
+  )
 
   return (
     <div className="space-y-6">
@@ -156,12 +192,24 @@ export function BreakdownPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{groupLabels[groupBy]}</TableHead>
-                <TableHead className="text-right">Requests</TableHead>
-                <TableHead className="text-right">In tokens</TableHead>
-                <TableHead className="text-right">Out tokens</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Share</TableHead>
+                <SortHead
+                  label={groupLabels[groupBy]}
+                  column="name"
+                  sortColumn={sortColumn}
+                  descending={descending}
+                  onSort={sortBy}
+                />
+                {numberColumns.map(({ column, label }) => (
+                  <SortHead
+                    key={column}
+                    label={label}
+                    column={column}
+                    sortColumn={sortColumn}
+                    descending={descending}
+                    onSort={sortBy}
+                    numeric
+                  />
+                ))}
               </TableRow>
             </TableHeader>
 
@@ -181,7 +229,7 @@ export function BreakdownPage() {
                 </TableRow>
               )}
               {!isPending &&
-                groups.map((group) => (
+                sorted.map((group) => (
                   <TableRow key={group.key}>
                     <TableCell className="font-medium wrap-break-word whitespace-normal">
                       {nameOf(groupBy, group.key)}
@@ -203,6 +251,47 @@ export function BreakdownPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+// A header that sorts by its column; screen readers hear the order.
+function SortHead({
+  label,
+  column,
+  sortColumn,
+  descending,
+  onSort,
+  numeric = false,
+}: {
+  label: string
+  column: SortColumn
+  sortColumn: SortColumn
+  descending: boolean
+  onSort: (column: SortColumn) => void
+  numeric?: boolean
+}) {
+  const active = column === sortColumn
+  const Icon = active ? (descending ? ArrowDown : ArrowUp) : ArrowUpDown
+  return (
+    <TableHead
+      className={cn(numeric && 'text-right')}
+      aria-sort={active ? (descending ? 'descending' : 'ascending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          'inline-flex cursor-pointer items-center gap-1 rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          numeric && 'flex-row-reverse',
+        )}
+      >
+        {label}
+        <Icon
+          aria-hidden
+          className={cn('size-3.5', !active && 'text-muted-foreground/50')}
+        />
+      </button>
+    </TableHead>
   )
 }
 

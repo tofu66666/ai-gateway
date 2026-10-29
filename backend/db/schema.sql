@@ -9,7 +9,8 @@ create table if not exists models (
   price_per_1m_output     numeric(12,6) not null,
   data_processing_country text,
   data_processing_state   text,
-  created_at              timestamptz not null default now()
+  created_at              timestamptz not null default now(),
+  prompt                  text
 );
 
 create table if not exists teams (
@@ -76,16 +77,20 @@ create table if not exists virtual_keys (
 );
 
 create table if not exists requests (
-  id             uuid primary key default gen_random_uuid(),
-  project_id     uuid not null references projects(id),
-  model_id       uuid not null references models(id),
-  user_id        uuid not null references users(id),
-  input_tokens   integer not null,
-  output_tokens  integer not null,
-  cost           numeric(14,6) not null,
-  status         text not null,
-  latency        integer,
-  created_at     timestamptz not null default now()
+  id                  uuid primary key default gen_random_uuid(),
+  project_id          uuid not null references projects(id),
+  model_id            uuid not null references models(id),
+  user_id             uuid not null references users(id),
+  input_tokens        integer not null,
+  output_tokens       integer not null,
+  cost                numeric(14,6) not null,
+  status              text not null,
+  latency             integer,
+  created_at          timestamptz not null default now(),
+  request_text        text,
+  response_text       text,
+  key_id              uuid references virtual_keys(id),
+  time_to_first_token integer
 );
 
 create table if not exists audits (

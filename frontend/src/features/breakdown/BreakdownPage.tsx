@@ -125,10 +125,10 @@ export function BreakdownPage() {
               {!isPending &&
                 groups.map((group) => (
                   <TableRow key={group.key}>
-                    <TableCell className="font-medium break-all whitespace-normal">
+                    <TableCell className="font-medium wrap-break-word whitespace-normal">
                       {nameOf(groupBy, group.key)}
                     </TableCell>
-                    <TotalCells total={group} />
+                    <TotalCells total={group} spent={total.cost > 0} />
                   </TableRow>
                 ))}
             </TableBody>
@@ -137,7 +137,7 @@ export function BreakdownPage() {
               <TableFooter>
                 <TableRow>
                   <TableCell>Total</TableCell>
-                  <TotalCells total={total} />
+                  <TotalCells total={total} spent={total.cost > 0} />
                 </TableRow>
               </TableFooter>
             )}
@@ -148,7 +148,8 @@ export function BreakdownPage() {
   )
 }
 
-function TotalCells({ total }: { total: GroupTotal }) {
+// Share is "—" only when nothing was spent; a free model's share is 0%.
+function TotalCells({ total, spent }: { total: GroupTotal; spent: boolean }) {
   return (
     <>
       <TableCell className="text-right tabular-nums">
@@ -164,7 +165,7 @@ function TotalCells({ total }: { total: GroupTotal }) {
         {formatMoney(total.cost)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {total.cost > 0 ? `${Math.round(total.share * 100)}%` : '—'}
+        {spent ? `${Math.round(total.share * 100)}%` : '—'}
       </TableCell>
     </>
   )

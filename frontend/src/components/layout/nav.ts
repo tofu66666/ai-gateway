@@ -1,5 +1,6 @@
 import {
   Boxes,
+  KeyRound,
   LayoutDashboard,
   ListOrdered,
   MessageSquareText,
@@ -41,6 +42,12 @@ export const navItems: NavItem[] = [
     roles: leadsAndAdmins,
   },
   { path: '/models', label: 'Models', icon: Boxes, roles: everyone },
+  {
+    path: '/keys',
+    label: 'Keys',
+    icon: KeyRound,
+    roles: everyone,
+  },
   {
     path: '/requests',
     label: 'Requests',

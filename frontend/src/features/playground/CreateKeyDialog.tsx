@@ -26,15 +26,26 @@ import {
 } from '@/components/ui/select'
 import { formatDate } from '@/lib/format'
 
+type CreateKeyDialogProps = {
+  onUse?: (key: string) => void
+  onCreated?: () => void
+}
+
 // A key belongs to one project and to the person who creates it: the team
 // lead, or a member allowed to create keys. The raw key is shown only here.
-export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
+export function CreateKeyDialog({
+  onUse,
+  onCreated,
+}: CreateKeyDialogProps) {
   const [open, setOpen] = useState(false)
   const [projectId, setProjectId] = useState('')
   const projects = useProjects()
   const teams = useTeams()
   const teamNames = new Map(teams.data?.map((team) => [team.id, team.name]))
-  const create = useMutation({ mutationFn: createKey })
+  const create = useMutation({
+    mutationFn: createKey,
+    onSuccess: () => onCreated?.(),
+  })
   const created = create.data
 
   function changeOpen(next: boolean) {
@@ -61,6 +72,7 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
           Create key
         </Button>
       </DialogTrigger>
+
       <DialogContent
         // While the key is on screen, only the buttons close the dialog.
         onInteractOutside={(event) => {
@@ -99,6 +111,7 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
                 <Copy />
               </Button>
             </div>
+
             <p className="text-sm text-muted-foreground">
               Expires {formatDate(created.expires_at)}.
             </p>
@@ -110,6 +123,7 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
               <SelectTrigger id="key-project" className="w-full">
                 <SelectValue placeholder="Select project" />
               </SelectTrigger>
+
               <SelectContent>
                 {projects.data?.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
@@ -118,14 +132,18 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
                 ))}
               </SelectContent>
             </Select>
+
             {projects.isError && (
               <ErrorState
                 title="Couldn't load your projects"
                 error={projects.error}
               />
             )}
+
             {create.isError && (
-              <p className="text-sm text-destructive">{create.error.message}</p>
+              <p className="text-sm text-destructive">
+                {create.error.message}
+              </p>
             )}
           </div>
         )}
@@ -135,11 +153,11 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
             <Button
               type="button"
               onClick={() => {
-                onUse(created.key)
+                onUse?.(created.key)
                 changeOpen(false)
               }}
             >
-              Use this key
+              {onUse ? 'Use this key' : 'Done'}
             </Button>
           ) : (
             <>
@@ -150,6 +168,7 @@ export function CreateKeyDialog({ onUse }: { onUse: (key: string) => void }) {
               >
                 Cancel
               </Button>
+
               <Button
                 type="button"
                 disabled={!projectId || create.isPending}

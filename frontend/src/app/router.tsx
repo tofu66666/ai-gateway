@@ -4,6 +4,7 @@ import { RequireRole } from '@/auth/RequireRole'
 import { AppShell } from '@/components/layout/AppShell'
 import { leadsAndAdmins } from '@/components/layout/nav'
 import { AuthRoute } from '@/features/auth/AuthRoute'
+import { KeysPage } from '@/features/keys/KeysPage'
 import { ModelsPage } from '@/features/models/ModelsPage'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { PlaygroundPage } from '@/features/playground/PlaygroundPage'
@@ -28,6 +29,7 @@ export function AppRoutes() {
             <Route path="teams/:teamId" element={<TeamPage />} />
           </Route>
           <Route path="models" element={<ModelsPage />} />
+          <Route path="keys" element={<KeysPage />} />
           <Route path="requests" element={<RequestsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

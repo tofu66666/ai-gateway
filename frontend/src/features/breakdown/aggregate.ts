@@ -120,13 +120,14 @@ export type Bucket = {
 
 // The period in day, week or month buckets, empty ones included, with the
 // cost of each group in each. The first bucket starts with the period, so a
-// month that begins on a Tuesday opens with "1–6 Sep".
+// month that begins on a Tuesday opens with "1–6 Sep". The period ends now
+// unless `to` says otherwise, as windowStart does for its start.
 export function costsByBucket(
   rows: BreakdownRow[],
   groupBy: GroupBy,
   granularity: Granularity,
   from: Date,
-  to: Date,
+  to = new Date(),
 ) {
   const buckets: Bucket[] = []
   for (

@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { useCurrentUser } from '@/auth/useAuth'
@@ -21,7 +22,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatMoney } from '@/lib/format'
-import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { timeWindows, useTimeWindow, windowStart } from '@/lib/time-window'
 import { cn } from '@/lib/utils'
 import {
   costsByBucket,
@@ -70,7 +71,7 @@ const sortColumns: SortColumn[] = [
 // are kept in the page URL, so a view can be shared.
 export function BreakdownPage() {
   const user = useCurrentUser()
-  const { timeWindow } = useTimeWindow()
+  const { timeWindow, setTimeWindow } = useTimeWindow()
   const [params, setParams] = useSearchParams()
   const { rows, nameOf, isPending, error } = useBreakdownData()
 
@@ -98,6 +99,32 @@ export function BreakdownPage() {
       { replace: true },
     )
   }
+
+  // The top bar's window is in the URL too: a shared link opens with its
+  // window, and after that the top bar writes its window into the link.
+  const opened = useRef(false)
+  useEffect(() => {
+    const linked = timeWindows.find(
+      (option) => option.value === params.get('window'),
+    )?.value
+    if (!opened.current) {
+      opened.current = true
+      if (linked && linked !== timeWindow) {
+        setTimeWindow(linked)
+        return
+      }
+    }
+    if (params.get('window') !== timeWindow) {
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current)
+          next.set('window', timeWindow)
+          return next
+        },
+        { replace: true },
+      )
+    }
+  }, [params, setParams, setTimeWindow, timeWindow])
 
   function setFilter(by: GroupBy, value: string) {
     updateParams((next) => {
@@ -199,7 +226,6 @@ export function BreakdownPage() {
     groupBy,
     granularity,
     windowStart(timeWindow),
-    new Date(),
   )
 
   return (

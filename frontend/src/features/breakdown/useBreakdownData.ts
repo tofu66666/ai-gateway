@@ -71,6 +71,8 @@ export function useBreakdownData() {
     rows: [...rows.values()],
     nameOf: (groupBy: GroupBy, key: string) =>
       names[groupBy].get(key) ?? unknown[groupBy],
+    // A team the caller made requests in but is not in has no name here.
+    isKnown: (groupBy: GroupBy, key: string) => names[groupBy].has(key),
     isPending: queries.some((query) => query.isPending),
     error: queries.find((query) => query.isError)?.error ?? null,
   }

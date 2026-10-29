@@ -73,7 +73,7 @@ export function BreakdownPage() {
   const user = useCurrentUser()
   const { timeWindow, setTimeWindow } = useTimeWindow()
   const [params, setParams] = useSearchParams()
-  const { rows, nameOf, isPending, error } = useBreakdownData()
+  const { rows, nameOf, isKnown, isPending, error } = useBreakdownData()
 
   // Budget owners split by team first; a user's own spend splits by model.
   const fallback: GroupBy = user.role === 'user' ? 'model' : 'team'
@@ -372,7 +372,7 @@ export function BreakdownPage() {
                           className="size-2.5 shrink-0 rounded-[2px]"
                           style={{ background: colourOf(group.key) }}
                         />
-                        {groupBy === 'team' && group.key !== '' ? (
+                        {groupBy === 'team' && isKnown('team', group.key) ? (
                           <button
                             type="button"
                             onClick={() => openTeam(group.key)}

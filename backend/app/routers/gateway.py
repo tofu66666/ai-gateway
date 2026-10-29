@@ -1,60 +1,66 @@
 import time
+import logging
 from datetime import datetime, timezone
-
+import uuid
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
 from app import budget, config, request_log
+from app import gateway_logic_helper as logic
+from app.providers import call_prov
 from app.routers.db import supabase
-from app.routers.virtual_key import validate_virtual_key
+from app.routers.virtual_key import validate_virtual_key, hash_key
 
-
+logger=logging.getLogger(__name__)
 router=APIRouter(tags=["gateway"])
 bearer=HTTPBearer()
 
-# provider name (`provider` column in the models table) -> how to call it.
-# Add a provider with an openAI-compatible API here
-# Decide later whether we create a separated PROVIDER file.
-PROVIDERS={
-    "google":{
-        "url":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "api_key": lambda: config.GEMINI_API_KEY,
-        # Use lambda to call at runtime, not import time
-    }
-}
-
-def call_prov(provider: str, body: dict) -> httpx.Response:
-    cfg=PROVIDERS.get(provider)
-    if cfg is None:
-        raise HTTPException(501, f"Provider '{provider}' is not supported")
-    return httpx.post(
-        cfg["url"],
-        json=body,
-        headers={"Authorization":f"Bearer {cfg['api_key']()}"},
-        timeout=60,
-    )    
-
-
-def get_model_by_alias(alias: str) -> dict | None:
-    # Return the models row for this alias
+# Find virtual_key
+def lookup_key_id(raw_key:str)->str|None:
+    # Finding the id of the virtual key by its hash
     rows=(
-        supabase.table("models")
-        .select("id, provider, model, price_per_1m_input, price_per_1m_output")
-        .eq("alias",alias)
+        supabase.table("virtual_keys")
+        .select("id")
+        .eq("hash", hash_key(raw_key))
         .limit(1)
         .execute()
         .data
     )
     if rows:
-        return rows[0]
+        return rows[0]["id"]
     else:
         return None
-    # rows[0] is dictionary
 
-# By using validate virtual key, it substitui find_key and verify_key
-# find_key->find_project_model_ids
+def get_allowed_models(model_ids: list) -> list[dict]:
+    # Select the whole model rows this project uses. (include prompt)
+    ids=[]
+    for i in model_ids or []:
+        ids.append(str(i))
+    if not ids:
+        return [] 
+    rows=(
+        supabase.table("models")
+        .select("*")
+        .in_("id", ids)
+        .execute()
+        .data 
+    ) or []
+    return rows
+
+# Check if model exists
+def model_exists(name:str)->bool:
+    # Is there any model, with this alias? (allowed or not)
+    rows=(
+        supabase.table("models")
+        .select("id")
+        .eq("alias", name)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(rows)
 
 def get_proj_m_ids(project_id:str)->list:
     rows=(
@@ -75,11 +81,32 @@ def get_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
     vk=validate_virtual_key(response, credentials)
     if response.status_code !=200:
         raise HTTPException(response.status_code, vk["message"])
+    # Including the virtual key's own id
+    key_id=vk.get("key_id")
+    if key_id is None:
+        try:
+            key_id=lookup_key_id(credentials.credentials)
+        except Exception:
+            logger.exception("Could not look up the virtual key id")
     return {
         "user_id": vk["user_id"],
         "project_id": vk["project_id"],
+        "key_id": key_id,
         "model_ids": get_proj_m_ids(vk["project_id"])
     }
+
+def resolve_model(name:object, key:dict)->dict:
+    # Find the model,
+    # Refuse it, if it is not allowed to the project (403)
+    # If it is wrong kind for this endpoint, 400
+    if not name or not isinstance(name, str):
+        raise HTTPException(400, "'model' is required")    
+    row=logic.pick_model(name, get_allowed_models(key["model_ids"]))
+    if row is None:
+        if model_exists(name):
+            raise HTTPException(403, f"Model '{name}' is not allowed for this project")
+        raise HTTPException(404, f"Unknown model '{name}'")
+    return row
 
 
 def require_budget_available(key: dict = Depends(get_key)) -> dict:
@@ -95,35 +122,45 @@ def require_budget_available(key: dict = Depends(get_key)) -> dict:
         raise HTTPException(429, f"Monthly {scope} budget '{name}' is exhausted")
     return key
 
+def ms_since(started: float)->int:
+    return int((time.perf_counter()-started)*1000)
 
-@router.post("/chat/completions")
-def chat_completions(body: dict, key: dict=Depends(require_budget_available)):
-    alias=body.get("model")
-    if not alias:
-        raise HTTPException(400, "'model' is required")
-    
-    row = get_model_by_alias(alias)
-    if row is None:
-        raise HTTPException(404, f"Unknown model '{alias}'")
+# log_and_respond=Second part of chat_completions (declare first here because the first part=send_to_prov use is in the end)
+def log_and_respond(status_code, payload, row, key, started, request_id):
+    #Log the request and answer with JSON (use it for non-streaming answer)
+    if status_code >= 400:
+        new_status, payload=logic.hide_provider_auth_errors(status_code, payload)
+        if new_status != status_code:
+            logger.warning(
+                "Provider '%s' rejected the gateway's credentials (HTTP %s)", row["provider"], status_code
+            )
+            status_code=new_status
+    logged_id=request_log.log_request(
+        key=key,
+        model=row,
+        payload=payload,
+        status_code=status_code,
+        latency_ms=ms_since(started),
+        request_id=request_id,
+    )
+    if logged_id:
+        headers={"X-Request-ID": str(logged_id)}
+    else:
+        headers={}
+    return JSONResponse(payload, status_code=status_code, headers=headers)
 
-    # Send using the real provider model name
-
-    if str(row["id"]) not in {str(i) for i in key["model_ids"]}:
-        raise HTTPException(403, f"Model '{alias}' is not usable for this project")
-
-    
-    # Round Trip Time Latency using high resolution performance counter time.perf_counter()
+# First part of chat_completions
+def send_to_prov_json(call_endpoint, provider_body, row, key):
+    # Call the provider and wait for the whole answer
+    request_id=str(uuid.uuid4())
     started=time.perf_counter()
-    # Log for requests row (key["user_id"], key["project_id"], row["id"], usage, latency, status)\
     try:
-        upstream = call_prov(row["provider"], {**body, "model": row["model"]})
-    
+        upstream = call_prov(row["provider"], call_endpoint, provider_body)
     # Timeouts(504) and network failures(502)
     except httpx.TimeoutException:
         status_code, payload=504, {"error":{"message": "Provider timed out"}}
     except httpx.HTTPError:
         status_code, payload=502, {"error":{"message": "Could not reach the provider"}}
-    
     else:
         status_code=upstream.status_code
         try:
@@ -134,23 +171,21 @@ def chat_completions(body: dict, key: dict=Depends(require_budget_available)):
             # For the case that it returns 200 OK or 302 found with a non-JSON file.
             if status_code < 400:
                 status_code = 502
-    # perf_counter is second, to change to ms *1000
-    latency_ms=int((time.perf_counter()-started)*1000)
+    return log_and_respond(status_code, payload, row, key, started, request_id)    
 
-    request_id=request_log.log_request(
-        key=key,
-        model=row,
-        payload=payload,
-        status_code=status_code,
-        latency_ms=latency_ms,
-    )
+def send_req(endpoint:str, body:dict, key:dict):
+    # Chat, embeddings and completions: body goes to the provider with real model name here
+    row=resolve_model(body.get("model"), key)
 
-    # The clien asked for tha alias, so answer with the alias
-    if isinstance(payload, dict) and "model" in payload:
-        payload["model"]=alias
-    if request_id:
-        headers={"X-request-ID":str(request_id)}
-    else:
-        headers={}
-    return JSONResponse(payload, status_code=status_code, headers=headers)
+    provider_body={**body,"model":row["model"]}
+    if endpoint=="chat":
+        provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
+    return send_to_prov_json(endpoint, provider_body, row, key)
+
+
+
+@router.post("/chat/completions")
+@router.post("/v1/chat/completions", include_in_schema=False)
+def chat_completions(body:dict, key:dict=Depends(require_budget_available)):
+    return send_req("chat", body, key)
 

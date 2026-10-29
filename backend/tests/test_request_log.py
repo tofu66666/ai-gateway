@@ -204,5 +204,67 @@ def test_log_request_returns_none_when_insert_fails(monkeypatch):
 
     assert call_log_request() is None
 
+# Request Id and key id test
 
+def test_record_additional_column():
+    record=request_log.build_record(
+        key={**KEY, "key_id": "k1"},
+        model=MODEL,
+        payload=usage(1000, 500),
+        status_code=200,
+        latency_ms=50,
+        request_id="r-1",
+    )
+
+    assert record["id"]=="r-1" and record["key_id"]=="k1"
+    plain=build(usage(1,1))
+    assert not {"id", "key_id"} & set(plain)
+
+def test_log_request_saves_under_the_id_given(monkeypatch):
+    fake=MagicMock()
+    fake.table.return_value.insert.return_value.execute.return_value.data=[{"id":"r-1"}]
+    monkeypatch.setattr(request_log, "supabase", fake)
+
+    saved=request_log.log_request(
+        key={**KEY, "key_id":"k1"},
+        model=MODEL,
+        payload=usage(1000, 500),
+        status_code=200,
+        latency_ms=50,
+        request_id="r-1",
+    )
+
+    sent=fake.table.return_value.insert.call_args.args[0]
+    assert saved=="r-1"
+    assert sent["id"]=="r-1" and sent["key_id"]=="k1"
+
+def test_log_request_return_given_id_even_db_not_return_row(monkeypatch):
+    fake=MagicMock()
+    fake.table.return_value.insert.return_value.execute.return_value.data=[]
+    monkeypatch.setattr(request_log, "supabase", fake)
+
+    saved=request_log.log_request(
+        key=KEY,
+        model=MODEL,
+        payload={},
+        status_code=200,
+        latency_ms=5,
+        request_id="r-9",
+    )
+
+    assert saved=="r-9"
+
+def test_log_request_returns_none_when_insert_fails_2(monkeypatch):
+    fake=MagicMock()
+    fake.table.return_value.insert.return_value.execute.side_effect=RuntimeError("no such column")
+    monkeypatch.setattr(request_log, "supabase", fake)
+
+    assert request_log.log_request(
+        key=KEY, 
+        model=MODEL, 
+        payload={}, 
+        status_code=200,
+        latency_ms=5,
+        request_id="r-9",
+    ) is None
 

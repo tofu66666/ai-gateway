@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 
 import { useCurrentUser } from '@/auth/useAuth'
@@ -41,6 +41,9 @@ const groupings: GroupBy[] = ['model', 'team', 'user', 'project']
 const granularities: Granularity[] = ['day', 'week', 'month']
 // --chart-1 to --chart-7 in index.css; other groups share --chart-other.
 const seriesColours = 7
+// Text buttons for the drill-down and the breadcrumb.
+const textButton =
+  'cursor-pointer rounded-sm text-left underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
 const groupLabels: Record<GroupBy, string> = {
   model: 'Model',
@@ -113,6 +116,24 @@ export function BreakdownPage() {
         column === sortColumn ? !descending : column !== 'name'
       next.set('sort', column)
       next.set('dir', nextDescending ? 'desc' : 'asc')
+    })
+  }
+
+  // A team row opens that team by member (3.b Storyboard 3, frame 3); the
+  // breadcrumb goes back to every team.
+  function openTeam(teamId: string) {
+    updateParams((next) => {
+      next.set('team', teamId)
+      next.delete('project')
+      next.set('group', 'user')
+    })
+  }
+
+  function backToTeams() {
+    updateParams((next) => {
+      next.delete('team')
+      next.delete('project')
+      next.set('group', 'team')
     })
   }
 
@@ -214,6 +235,28 @@ export function BreakdownPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {filters.team !== 'all' && (
+            <nav aria-label="Breadcrumb">
+              <ol className="flex items-center gap-1 text-sm text-muted-foreground">
+                <li>
+                  <button
+                    type="button"
+                    onClick={backToTeams}
+                    className={cn(textButton, 'hover:text-foreground')}
+                  >
+                    All teams
+                  </button>
+                </li>
+                <li aria-hidden>
+                  <ChevronRight className="size-3.5" />
+                </li>
+                <li aria-current="page" className="font-medium text-foreground">
+                  {nameOf('team', filters.team)}
+                </li>
+              </ol>
+            </nav>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Tabs
               value={groupBy}
@@ -303,7 +346,22 @@ export function BreakdownPage() {
                           className="size-2.5 shrink-0 rounded-[2px]"
                           style={{ background: colourOf(group.key) }}
                         />
-                        {nameOf(groupBy, group.key)}
+                        {groupBy === 'team' && group.key !== '' ? (
+                          <button
+                            type="button"
+                            onClick={() => openTeam(group.key)}
+                            aria-label={`${nameOf('team', group.key)}: show by member`}
+                            className={cn(textButton, 'inline-flex gap-1')}
+                          >
+                            {nameOf('team', group.key)}
+                            <ChevronRight
+                              aria-hidden
+                              className="size-3.5 self-center text-muted-foreground"
+                            />
+                          </button>
+                        ) : (
+                          nameOf(groupBy, group.key)
+                        )}
                       </span>
                     </TableCell>
                     <TotalCells total={group} spent={total.cost > 0} />

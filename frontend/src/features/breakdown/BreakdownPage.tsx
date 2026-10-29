@@ -21,7 +21,13 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
-import { totalsByGroup, type GroupBy, type GroupTotal } from './aggregate'
+import {
+  groupKey,
+  totalsByGroup,
+  type GroupBy,
+  type GroupTotal,
+} from './aggregate'
+import { BreakdownFilters } from './BreakdownFilters'
 import { useBreakdownData } from './useBreakdownData'
 
 const groupings: GroupBy[] = ['model', 'team', 'user', 'project']
@@ -34,8 +40,8 @@ const groupLabels: Record<GroupBy, string> = {
 }
 
 // H18IALMOND-27: spend in the top bar's time window, split by model, team,
-// user or project (3.b Storyboard 3, frame 2). The grouping is kept in the
-// page URL, so a view can be shared.
+// user or project (3.b Storyboard 3, frame 2). The grouping and the filters
+// are kept in the page URL, so a view can be shared.
 export function BreakdownPage() {
   const user = useCurrentUser()
   const { timeWindow } = useTimeWindow()
@@ -46,23 +52,59 @@ export function BreakdownPage() {
   const fallback: GroupBy = user.role === 'user' ? 'model' : 'team'
   const groupParam = params.get('group')
   const groupBy = groupings.find((by) => by === groupParam) ?? fallback
+  const filters = Object.fromEntries(
+    groupings.map((by) => [by, params.get(by) ?? 'all']),
+  ) as Record<GroupBy, string>
+  const filtersOn = groupings.some((by) => filters[by] !== 'all')
 
-  function setGroupBy(value: string) {
+  function updateParams(change: (next: URLSearchParams) => void) {
     setParams(
       (current) => {
         const next = new URLSearchParams(current)
-        next.set('group', value)
+        change(next)
         return next
       },
       { replace: true },
     )
   }
 
+  function setFilter(by: GroupBy, value: string) {
+    updateParams((next) => {
+      if (value === 'all') next.delete(by)
+      else next.set(by, value)
+      // A project belongs to one team, so a new team clears it.
+      if (by === 'team') next.delete('project')
+    })
+  }
+
+  // Options come from every loaded request, so they stay when the window
+  // changes; projects follow the chosen team.
+  function optionsFor(by: GroupBy) {
+    const keys = new Set(
+      rows
+        .filter(
+          (row) =>
+            by !== 'project' ||
+            filters.team === 'all' ||
+            row.team_id === filters.team,
+        )
+        .map((row) => groupKey(row, by)),
+    )
+    return [...keys]
+      .filter((key) => key !== '')
+      .map((key) => ({ value: key, label: nameOf(by, key) }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }
+
   const since = windowStart(timeWindow).getTime()
-  const inWindow = rows.filter(
-    (row) => new Date(row.created_at).getTime() >= since,
+  const shown = rows.filter(
+    (row) =>
+      new Date(row.created_at).getTime() >= since &&
+      groupings.every(
+        (by) => filters[by] === 'all' || groupKey(row, by) === filters[by],
+      ),
   )
-  const { groups, total } = totalsByGroup(inWindow, groupBy)
+  const { groups, total } = totalsByGroup(shown, groupBy)
 
   return (
     <div className="space-y-6">
@@ -72,6 +114,15 @@ export function BreakdownPage() {
           Split spending by model, team, user or project.
         </p>
       </div>
+
+      <BreakdownFilters
+        filters={filters}
+        optionsFor={optionsFor}
+        onChange={setFilter}
+        onReset={() =>
+          updateParams((next) => groupings.forEach((by) => next.delete(by)))
+        }
+      />
 
       {error && <ErrorState title="Couldn't load usage" error={error} />}
 
@@ -87,7 +138,12 @@ export function BreakdownPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <Tabs value={groupBy} onValueChange={setGroupBy}>
+          <Tabs
+            value={groupBy}
+            onValueChange={(value) =>
+              updateParams((next) => next.set('group', value))
+            }
+          >
             <TabsList aria-label="Group by">
               {groupings.map((by) => (
                 <TabsTrigger key={by} value={by}>
@@ -118,7 +174,9 @@ export function BreakdownPage() {
                   >
                     {isPending
                       ? 'Loading usage...'
-                      : 'No requests in this period.'}
+                      : filtersOn
+                        ? 'No requests match these filters in this period.'
+                        : 'No requests in this period.'}
                   </TableCell>
                 </TableRow>
               )}

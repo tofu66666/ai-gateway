@@ -24,17 +24,23 @@ import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { cn } from '@/lib/utils'
 import {
+  costsByBucket,
   groupKey,
   sortGroups,
   totalsByGroup,
   type GroupBy,
   type GroupTotal,
+  type Granularity,
   type SortColumn,
 } from './aggregate'
 import { BreakdownFilters } from './BreakdownFilters'
+import { SpendChart } from './SpendChart'
 import { useBreakdownData } from './useBreakdownData'
 
 const groupings: GroupBy[] = ['model', 'team', 'user', 'project']
+const granularities: Granularity[] = ['day', 'week', 'month']
+// --chart-1 to --chart-7 in index.css; other groups share --chart-other.
+const seriesColours = 7
 
 const groupLabels: Record<GroupBy, string> = {
   model: 'Model',
@@ -142,6 +148,39 @@ export function BreakdownPage() {
     nameOf(groupBy, key),
   )
 
+  // Day, week and month change only the chart; a week of data reads best by
+  // day. The colour of a group stays the same through filters and windows:
+  // the most expensive groups over everything loaded take the series colours.
+  const periodParam = params.get('period')
+  const granularity =
+    granularities.find((period) => period === periodParam) ??
+    (timeWindow === 'last_7_days' ? 'day' : 'week')
+  const colourOrder = totalsByGroup(rows, groupBy).groups.map((g) => g.key)
+  const hasColour = (key: string) =>
+    colourOrder.indexOf(key) >= 0 && colourOrder.indexOf(key) < seriesColours
+  const colourOf = (key: string) =>
+    hasColour(key)
+      ? `var(--chart-${colourOrder.indexOf(key) + 1})`
+      : 'var(--chart-other)'
+  const series = groups
+    .filter((group) => hasColour(group.key))
+    .sort((a, b) => colourOrder.indexOf(a.key) - colourOrder.indexOf(b.key))
+    .map((group) => ({
+      key: group.key,
+      label: nameOf(groupBy, group.key),
+      color: colourOf(group.key),
+    }))
+  const other = groups.some((group) => !hasColour(group.key))
+    ? { key: 'other', label: 'Other', color: 'var(--chart-other)' }
+    : null
+  const buckets = costsByBucket(
+    shown,
+    groupBy,
+    granularity,
+    windowStart(timeWindow),
+    new Date(),
+  )
+
   return (
     <div className="space-y-6">
       <div>
@@ -168,26 +207,52 @@ export function BreakdownPage() {
             Spending by {groupLabels[groupBy].toLowerCase()}
           </CardTitle>
           <CardDescription>
-            Rows total the whole period. Every request counts for the user who
-            made it and for the team that owns its project.
+            Day, week and month change only the chart; rows total the whole
+            period. Every request counts for the user who made it and for the
+            team that owns its project.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <Tabs
-            value={groupBy}
-            onValueChange={(value) =>
-              updateParams((next) => next.set('group', value))
-            }
-          >
-            <TabsList aria-label="Group by">
-              {groupings.map((by) => (
-                <TabsTrigger key={by} value={by}>
-                  {groupLabels[by]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Tabs
+              value={groupBy}
+              onValueChange={(value) =>
+                updateParams((next) => next.set('group', value))
+              }
+            >
+              <TabsList aria-label="Group by">
+                {groupings.map((by) => (
+                  <TabsTrigger key={by} value={by}>
+                    {groupLabels[by]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <Tabs
+              value={granularity}
+              onValueChange={(value) =>
+                updateParams((next) => next.set('period', value))
+              }
+            >
+              <TabsList aria-label="Chart period">
+                {granularities.map((period) => (
+                  <TabsTrigger key={period} value={period}>
+                    {period[0].toUpperCase() + period.slice(1)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {!isPending && groups.length > 0 && (
+            <SpendChart
+              buckets={buckets}
+              series={series}
+              other={other}
+              granularity={granularity}
+            />
+          )}
 
           <Table>
             <TableHeader>
@@ -232,7 +297,14 @@ export function BreakdownPage() {
                 sorted.map((group) => (
                   <TableRow key={group.key}>
                     <TableCell className="font-medium wrap-break-word whitespace-normal">
-                      {nameOf(groupBy, group.key)}
+                      <span className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="size-2.5 shrink-0 rounded-[2px]"
+                          style={{ background: colourOf(group.key) }}
+                        />
+                        {nameOf(groupBy, group.key)}
+                      </span>
                     </TableCell>
                     <TotalCells total={group} spent={total.cost > 0} />
                   </TableRow>

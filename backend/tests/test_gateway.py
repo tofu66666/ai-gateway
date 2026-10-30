@@ -8,7 +8,7 @@ import pytest
 import httpx
 
 from app.main import app
-from app import budget, request_log
+from app import budget, guardrails, request_log
 from app.routers import gateway
 
 client=TestClient(app)
@@ -22,11 +22,14 @@ USAGE_REPLY={**REPLY,"usage":{"prompt_tokens":1000, "completion_tokens":500}}
 # Skipping Supabase, create fake_db
 # It takes what the gateway writes to the request table and project spend
 
-def fake_auth(monkeypatch, key=KEY, model=MODEL):
-    # Skip the key check 
+NO_GUARDRAILS={"blocked_patterns": [], "max_tokens_cap": None}
+
+def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS):
+    # Skip the key check
     monkeypatch.setitem(
         app.dependency_overrides, gateway.require_budget_available, lambda: key
     )
+    monkeypatch.setattr(guardrails, "get_project_guardrails", lambda project_id: rules)
     ids={str(i) for i in key["model_ids"]}
     allowed=[model] if model and str(model["id"]) in ids else []
 

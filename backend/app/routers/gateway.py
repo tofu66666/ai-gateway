@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
-from app import budget, config, request_log
+from app import budget, config, guardrails, request_log
 from app import gateway_logic_helper as logic
 from app.providers import call_prov
 from app.routers.db import supabase
@@ -173,9 +173,26 @@ def send_to_prov_json(call_endpoint, provider_body, row, key):
                 status_code = 502
     return log_and_respond(status_code, payload, row, key, started, request_id)    
 
+def enforce_guardrails(body:dict, row:dict, key:dict)->dict:
+    # H18IALMOND-39: refuse blocked prompts and oversized requests before any provider call
+    try:
+        settings=guardrails.get_project_guardrails(str(key["project_id"]))
+    except Exception as exc:
+        raise HTTPException(503, "Could not verify project guardrails") from exc
+    try:
+        return guardrails.check_request(body, settings)
+    except guardrails.GuardrailViolation as exc:
+        # Log the blocked attempt; status >= 400 records 0 tokens and 0 cost
+        logged_id=request_log.log_request(
+            key=key, model=row, payload={}, status_code=400, latency_ms=0
+        )
+        headers={"X-Request-ID": str(logged_id)} if logged_id else None
+        raise HTTPException(400, str(exc), headers=headers) from exc
+
 def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here
     row=resolve_model(body.get("model"), key)
+    body=enforce_guardrails(body, row, key)
 
     provider_body={**body,"model":row["model"]}
     if endpoint=="chat":

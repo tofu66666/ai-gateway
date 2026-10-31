@@ -30,6 +30,7 @@ The dashboard uses relative `/api/...` URLs. nginx (`frontend/nginx.conf`) and V
 | 8080 | Built dashboard, served by nginx | `docker compose up` |
 | 8000 | FastAPI backend | `docker compose up` |
 | 5173 | Vite dev server | `npm run dev` in `frontend/` |
+| 9100 | Stub provider for load tests | `docker compose --profile loadtest up -d` |
 
 ## Environment variables
 
@@ -40,6 +41,7 @@ Compose reads `.env` for variable substitution and passes it to the backend thro
 | `APP_ENV` | no | Environment label: `dev` (default), `test` or `prod` |
 | `SUPABASE_URL` | yes | the Supabase project URL, `https://<project-ref>.supabase.co` |
 | `SUPABASE_KEY` | yes | the Supabase API key the backend uses |
+| `LLM_KEY_<NAME>` | no | a provider key for one deployment, referred to by `api_key_env` |
 
 - Compose refuses to start if either Supabase value is missing or empty.
 - The frontend waits for the backend health check. `/health` queries the Supabase `users` table and returns HTTP 500 if the query fails.
@@ -85,6 +87,36 @@ Add packages to `backend/requirements.txt` with explicit versions, then rebuild.
 
 3. Add tests in `backend/tests/`, including error cases where applicable.
 4. Save and check the route at http://localhost:8000/docs.
+
+### Load balancing
+
+A row in `models` is the alias clients ask for. Its rows in `model_deployments` are the places it can be served from. Every alias starts with one deployment called `default`. Admins replace the list with `PUT /models/{id}/deployments`:
+
+```json
+{
+  "routing_strategy": "least_busy",
+  "deployments": [
+    { "name": "east", "provider": "openai", "model": "gpt-4o", "api_key_env": "LLM_KEY_OPENAI_EAST" },
+    { "name": "west", "provider": "openai", "model": "gpt-4o", "api_key_env": "LLM_KEY_OPENAI_WEST" }
+  ]
+}
+```
+
+- Deployments on the same key share one rate limit, so give each its own `LLM_KEY_<NAME>`.
+- `base_url` overrides the provider's URL and includes the version path. A deployment with a `base_url` needs its own key, because the shared provider key is only sent to the provider's own URL.
+- A deployment taken off the list is disabled, not deleted, so old requests keep their link to it.
+- Three failures (provider 5xx, 429, timeout, or a rejected key) in 60 seconds take a deployment out of rotation for 60 seconds. If every deployment is out, clients get 503 with `Retry-After`. `GET /models/{id}/deployments` shows each one's `in_flight` and `cooldown_seconds`.
+- Busy counts and cooldowns live in the backend process, so they reset on restart. Running more than one Uvicorn worker needs them moved to Redis first.
+
+To see a traffic split, start the stub, point two deployments at it, and run the script with a virtual key for that alias:
+
+```sh
+docker compose --profile loadtest up -d
+# base_url: http://stub-provider:9100/fast/v1 and http://stub-provider:9100/slow/v1
+docker compose exec backend python loadtest/split_test.py --key mq-k_... --model my-alias
+```
+
+`STUB_DELAYS` sets how slowly each path answers (default `fast=0.01,slow=0.2`). `tests/test_load_split.py` runs the same check in CI without Supabase.
 
 ## Working on the dashboard
 

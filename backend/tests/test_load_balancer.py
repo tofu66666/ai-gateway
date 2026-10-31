@@ -3,7 +3,7 @@
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from app.load_balancer import LoadBalancer
+from app.load_balancer import COOLDOWN_SECONDS, LoadBalancer
 
 A = {"id": "a"}
 B = {"id": "b"}
@@ -81,3 +81,101 @@ def test_round_robin_split_is_exact_across_threads():
 
     assert chosen == {"a": 500, "b": 500}
     assert balancer.in_flight("a") == 0 and balancer.in_flight("b") == 0
+
+
+# Cooldown
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def fail(balancer, deployment_id, times=3):
+    for _ in range(times):
+        balancer.record_failure(deployment_id)
+
+
+def test_deployment_in_cooldown_is_skipped():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a")
+
+    assert picks(balancer, [A, B, C], "round_robin", 4) == list("bcbc")
+
+
+def test_least_busy_skips_deployment_in_cooldown():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a")
+
+    assert set(picks(balancer, [A, B], "least_busy", 4)) == {"b"}
+
+
+def test_two_failures_do_not_start_a_cooldown():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a", times=2)
+
+    assert balancer.cooldown_left("a") == 0
+
+
+def test_old_failures_fall_out_of_the_window():
+    clock = Clock()
+    balancer = LoadBalancer(clock=clock)
+    fail(balancer, "a", times=2)
+    clock.now += 61
+    balancer.record_failure("a")
+
+    assert balancer.cooldown_left("a") == 0
+
+
+def test_failures_are_counted_per_deployment():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a", times=2)
+    balancer.record_failure("b")
+
+    assert balancer.cooldown_left("a") == 0
+    assert balancer.cooldown_left("b") == 0
+
+
+def test_deployment_returns_after_the_cooldown():
+    clock = Clock()
+    balancer = LoadBalancer(clock=clock)
+    fail(balancer, "a")
+    assert balancer.cooldown_left("a") == COOLDOWN_SECONDS
+
+    clock.now += COOLDOWN_SECONDS
+
+    assert balancer.cooldown_left("a") == 0
+    assert picks(balancer, [A, B], "round_robin", 2) == list("ab")
+
+
+def test_late_failures_do_not_extend_the_cooldown():
+    clock = Clock()
+    balancer = LoadBalancer(clock=clock)
+    fail(balancer, "a")
+
+    clock.now += 30
+    fail(balancer, "a")
+
+    assert balancer.cooldown_left("a") == COOLDOWN_SECONDS - 30
+
+
+def test_a_returning_deployment_starts_with_no_failures():
+    clock = Clock()
+    balancer = LoadBalancer(clock=clock)
+    fail(balancer, "a")
+    clock.now += COOLDOWN_SECONDS
+
+    balancer.record_failure("a")
+
+    assert balancer.cooldown_left("a") == 0
+
+
+def test_all_deployments_in_cooldown():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a")
+    fail(balancer, "b")
+
+    assert balancer.acquire("alias", [A, B], "round_robin") is None

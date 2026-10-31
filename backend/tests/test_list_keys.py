@@ -67,6 +67,9 @@ def db(monkeypatch):
     monkeypatch.setattr(virtual_key, "get_project_ids", get_project_ids)
     monkeypatch.setattr(virtual_key, "get_keys", get_keys)
     monkeypatch.setattr(virtual_key, "get_user_emails", lambda: {"me": "me@example.com"})
+    monkeypatch.setattr(
+        virtual_key, "get_model_aliases", lambda keys: {"model-1": "mq-small", "model-2": "mq-large"}
+    )
     return state
 
 
@@ -95,6 +98,42 @@ def test_lists_key_fields_without_hash(db):
             "status": "active",
         }
     ]
+
+
+def test_lists_a_limited_key_by_alias(db):
+    db["keys"] = [stored_key("key-1", model_ids=["model-2", "model-1"])]
+
+    assert list_keys().json()[0]["allowed_models"] == ["mq-large", "mq-small"]
+
+
+def test_key_with_a_missing_model_still_shows_as_limited(db):
+    db["keys"] = [stored_key("key-1", model_ids=["deleted-model"])]
+
+    assert list_keys().json()[0]["allowed_models"] == ["Unknown model"]
+
+
+def test_get_model_aliases_skips_the_query_when_no_key_is_limited(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr(virtual_key, "supabase", fake)
+
+    assert virtual_key.get_model_aliases([stored_key("key-1", model_ids=[])]) == {}
+    fake.table.assert_not_called()
+
+
+def test_get_model_aliases_looks_up_each_model_once(monkeypatch):
+    fake = MagicMock()
+    query = fake.table.return_value.select.return_value.in_
+    query.return_value.execute.return_value = SimpleNamespace(
+        data=[{"id": "model-1", "alias": "mq-small"}]
+    )
+    monkeypatch.setattr(virtual_key, "supabase", fake)
+    keys = [
+        stored_key("key-1", model_ids=["model-1"]),
+        stored_key("key-2", model_ids=["model-1"]),
+    ]
+
+    assert virtual_key.get_model_aliases(keys) == {"model-1": "mq-small"}
+    query.assert_called_once_with("id", ["model-1"])
 
 
 def test_user_sees_own_keys_and_keys_in_teams_they_lead(db):

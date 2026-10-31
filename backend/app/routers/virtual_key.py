@@ -552,6 +552,7 @@ def validate_virtual_key(
             "user_id": result["user_id"],
             "expires_at": result["expires_at"],
             "team_id": team_id["team_id"],
+            "model_ids": result.get("model_ids") or [],
         }
 
     response.status_code = status.HTTP_401_UNAUTHORIZED

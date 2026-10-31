@@ -40,6 +40,11 @@ target_id: model_id
 details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt}
 (if model is null then model has been deleted)
 
+action: model_routing_modify
+target_id: model_id
+details: {routing_strategy, deployments}
+(written by set_model_deployments; deployments is the full active list)
+
 action: project_create
 target_id: project id
 details: {name, team_id, model_ids, budget_per_month, warning_threshold, blocked_patterns, max_tokens_cap}

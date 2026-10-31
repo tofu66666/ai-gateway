@@ -290,3 +290,16 @@ def test_log_request_returns_none_when_insert_fails_2(monkeypatch):
         latency_ms=5,
         request_id="r-9",
     ) is None
+
+# Which deployment served the request (H18IALMOND-37)
+
+def test_build_record_includes_deployment():
+    record = request_log.build_record(
+        key=KEY, model=MODEL, payload=usage(1, 1), status_code=200, latency_ms=1,
+        deployment_id="d1",
+    )
+    assert record["deployment_id"] == "d1"
+
+def test_build_record_without_deployment():
+    assert "deployment_id" not in build(usage(1, 1))
+

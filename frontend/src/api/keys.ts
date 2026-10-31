@@ -34,11 +34,17 @@ export type RevokedKey = {
   revoked_at: string
 }
 
+export type NewKey = {
+  project_id: string
+  // Leave out to allow every model the project allows.
+  model_ids?: string[]
+}
+
 // The key expires after the database default (30 days).
-export function createKey(projectId: string) {
+export function createKey(key: NewKey) {
   return apiFetch<CreatedKey>('/create_api_key', {
     method: 'POST',
-    body: { project_id: projectId },
+    body: key,
   })
 }
 

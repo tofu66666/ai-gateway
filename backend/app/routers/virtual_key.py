@@ -28,6 +28,9 @@ class CreateKeyRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     # Leave out to use the database default (30 days from now).
     expires_at: AwareDatetime | None = None
+    # Leave out to allow every model the project allows. An empty list is
+    # rejected so a mistake can't quietly grant all of them.
+    model_ids: list[UUID] | None = Field(default=None, min_length=1)
 
 
 def generate_key() -> str:
@@ -67,6 +70,24 @@ def get_project_team(project_id: UUID) -> dict | None:
         .data
     )
     return team_rows[0] if team_rows else None
+
+
+def get_project_model_ids(project_id: UUID) -> set[str]:
+    """The IDs of the models this project allows."""
+    rows = (
+        supabase.table("projects")
+        .select("model_ids")
+        .eq("id", str(project_id))
+        .limit(1)
+        .execute()
+        .data
+    )
+    return {str(model_id) for model_id in rows[0]["model_ids"] or []} if rows else set()
+
+
+def has_models_outside_project(project_id: UUID, model_ids: set[str]) -> bool:
+    """True if a key limited to model_ids would name a model its project doesn't allow."""
+    return bool(model_ids) and not model_ids <= get_project_model_ids(project_id)
 
 
 def can_create_key(user_id: str, team: dict) -> bool:
@@ -161,9 +182,11 @@ def create_api_key(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "expires_at must be in the future"}
 
+    model_ids = {str(model_id) for model_id in payload.model_ids or []}
     try:
         team = get_project_team(payload.project_id)
         allowed = team is not None and can_create_key(user.id, team)
+        bad_models = allowed and has_models_outside_project(payload.project_id, model_ids)
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to look up project"}
@@ -178,6 +201,10 @@ def create_api_key(
             "message": "Forbidden: only the team lead or members allowed to create keys can create keys"
         }
 
+    if bad_models:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "model_ids can only include models this project allows"}
+
     raw_key = generate_key()
     key_data = {
         "project_id": str(payload.project_id),
@@ -189,6 +216,8 @@ def create_api_key(
         key_data["name"] = payload.name
     if expires_at is not None:
         key_data["expires_at"] = expires_at.isoformat()
+    if model_ids:
+        key_data["model_ids"] = sorted(model_ids)
 
     try:
         created_key = insert_key(key_data)

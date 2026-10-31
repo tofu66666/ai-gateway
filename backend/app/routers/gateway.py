@@ -183,7 +183,7 @@ def send_to_prov_json(call_endpoint, provider_body, row, key, request_text=None)
     request_id=str(uuid.uuid4())
     started=time.perf_counter()
     try:
-        upstream = call_prov(row["provider"], call_endpoint, provider_body)
+        upstream = call_prov(row, call_endpoint, provider_body)
     # Timeouts(504) and network failures(502)
     except httpx.TimeoutException:
         status_code, payload=504, {"error":{"message": "Provider timed out"}}
@@ -213,7 +213,7 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
     
     started=time.perf_counter()
     try:
-        upstream=open_stream(row["provider"],"chat", provider_body)
+        upstream=open_stream(row,"chat", provider_body)
     except httpx.TimeoutException:
         return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, key, started, request_id, request_text)
     except httpx.HTTPError:

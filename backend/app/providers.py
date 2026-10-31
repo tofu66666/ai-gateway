@@ -3,6 +3,9 @@
 # Non-OpenAI-compatible providers: Get own translation function 
 # Keep gateway.py decoulped
 # H18IALMOND 21-streaming (Add class Openstream and open_stream(provider, endpoint, body))
+
+import os
+
 import httpx
 from fastapi import HTTPException
 
@@ -73,20 +76,33 @@ def supp_stream_usage(provider:str)->bool:
 def supp_nat_response(provider:str)->bool:
     return bool(PROVIDERS.get(provider,{}).get("native_response"))
 
+# H18IALMOND-37: each deployment can have its own key, so an alias gets the
+# rate-limit headroom of several accounts instead of sharing one key
+def _deployment_key(deployment:dict, cfg:dict)->str | None:
+    if deployment.get("api_key_env"):
+        return os.getenv(deployment["api_key_env"])
+    # Never send the shared provider key to a URL that is not the provider's own
+    if deployment.get("base_url"):
+        return None
+    return cfg["api_key"]()
+
 # Separate _prov_info from call_prov to use in streaming
-def _prov_info(provider:str, endpoint: str)->tuple[str,dict,int]:
+def _prov_info(deployment:dict, endpoint: str)->tuple[str,dict,int]:
+    provider=deployment["provider"]
     cfg=PROVIDERS.get(provider)
     if cfg is None:
         raise HTTPException(501, f"Provider '{provider}' is not supported")
     path=ENDPOINT_PATHS[endpoint] 
     
-    api_key=cfg["api_key"]()
+    base_url=deployment.get("base_url")
+    url=base_url.rstrip("/") if base_url else cfg["base_url"]()
+    api_key=_deployment_key(deployment, cfg)
     headers={"Authorization":f"Bearer {api_key}"} if api_key else{}
     
-    return cfg["base_url"]()+path, headers, cfg.get("timeout", DEFAULT_TIMEOUT)
+    return url+path, headers, cfg.get("timeout", DEFAULT_TIMEOUT)
     
-def call_prov(provider: str, endpoint:str, body: dict) -> httpx.Response:
-    url, headers, timeout=_prov_info(provider, endpoint)
+def call_prov(deployment: dict, endpoint:str, body: dict) -> httpx.Response:
+    url, headers, timeout=_prov_info(deployment, endpoint)
     
     return httpx.post(
         url,
@@ -119,9 +135,9 @@ class OpenStream:
         self._response.close()
         self._client.close()
 
-def open_stream(provider:str, endpoint:str, body: dict)-> OpenStream:
+def open_stream(deployment:dict, endpoint:str, body: dict)-> OpenStream:
     # Send the request and return as soon as the provider starts answering
-    url, headers, timeout=_prov_info(provider, endpoint)
+    url, headers, timeout=_prov_info(deployment, endpoint)
     client=httpx.Client(timeout=timeout)
     try:
         request=client.build_request("POST", url, json=body, headers=headers)

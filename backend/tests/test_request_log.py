@@ -290,4 +290,3 @@ def test_log_request_returns_none_when_insert_fails_2(monkeypatch):
         latency_ms=5,
         request_id="r-9",
     ) is None
-

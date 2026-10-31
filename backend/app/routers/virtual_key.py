@@ -392,11 +392,22 @@ def get_keys(conditions: list[str] | None) -> list[dict]:
     """
     query = supabase.table("virtual_keys").select(
         "id, prefix, name, project_id, user_id, created_at, expires_at, revoked_at, "
-        "projects(name, team_id)"
+        "model_ids, projects(name, team_id)"
     )
     if conditions is not None:
         query = query.or_(",".join(conditions))
     return query.order("created_at", desc=True).execute().data
+
+
+def get_model_aliases(keys: list[dict]) -> dict:
+    """Map model ID -> alias for the models these keys are limited to."""
+    model_ids = {str(model_id) for key in keys for model_id in key.get("model_ids") or []}
+    if not model_ids:
+        return {}
+    rows = (
+        supabase.table("models").select("id, alias").in_("id", sorted(model_ids)).execute().data
+    )
+    return {str(row["id"]): row["alias"] for row in rows}
 
 
 def get_user_emails() -> dict:
@@ -455,9 +466,12 @@ def wanted_project_ids(
     return wanted
 
 
-def listed_key(key: dict, key_status: str, emails: dict) -> dict:
+def listed_key(key: dict, key_status: str, emails: dict, aliases: dict) -> dict:
     """A key as GET /api_keys shows it, never with its hash."""
     project = key.get("projects") or {}
+    allowed_models = [
+        aliases.get(str(model_id), "Unknown model") for model_id in key.get("model_ids") or []
+    ]
     return {
         "id": key["id"],
         "prefix": key["prefix"],
@@ -467,9 +481,8 @@ def listed_key(key: dict, key_status: str, emails: dict) -> dict:
         "team_id": project.get("team_id"),
         "user_id": key["user_id"],
         "user_email": emails.get(key["user_id"]),
-        # Empty means every model the project allows, until per-key model
-        # limits land (H18IALMOND-33).
-        "allowed_models": [],
+        # Empty means every model the project allows.
+        "allowed_models": sorted(allowed_models),
         "created_at": key["created_at"],
         "expires_at": key["expires_at"],
         "revoked_at": key.get("revoked_at"),
@@ -504,6 +517,7 @@ def list_api_keys(
 
         keys = get_keys(conditions) if conditions != [] else []
         emails = get_user_emails() if keys else {}
+        aliases = get_model_aliases(keys)
     except OutOfScope as e:
         response.status_code = status.HTTP_403_FORBIDDEN
         return {"message": str(e)}
@@ -511,7 +525,7 @@ def list_api_keys(
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to list keys"}
 
-    listed = [listed_key(key, get_key_status(key), emails) for key in keys]
+    listed = [listed_key(key, get_key_status(key), emails, aliases) for key in keys]
     if status_filter is not None:
         listed = [key for key in listed if key["status"] == status_filter]
     return listed

@@ -308,6 +308,14 @@ def test_active_key_is_valid(monkeypatch):
 
     assert status_code == 200
     assert body["team_id"] == "team-1"
+    assert body["model_ids"] == []
+
+
+def test_valid_key_reports_its_models(monkeypatch):
+    status_code, body = validate(monkeypatch, stored_key(model_ids=[MODEL_A]))
+
+    assert status_code == 200
+    assert body["model_ids"] == [MODEL_A]
 
 
 def test_unknown_key_is_unauthorised(monkeypatch):

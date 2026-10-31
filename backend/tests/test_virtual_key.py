@@ -16,6 +16,9 @@ from app.routers import virtual_key
 from app.routers.virtual_key import KEY_MARKER, generate_key, hash_key
 
 PROJECT_ID = "11111111-1111-1111-1111-111111111111"
+MODEL_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+MODEL_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+OTHER_MODEL = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TEAM = {"id": "team-1", "owner_id": "owner-1"}
 AUTH = {"Authorization": "Bearer good-token"}
 client = TestClient(app)
@@ -46,6 +49,9 @@ def db(monkeypatch):
     monkeypatch.setattr(dependencies, "supabase", auth_client)
     monkeypatch.setattr(dependencies, "get_user_role", lambda user_id: "member")
     monkeypatch.setattr(virtual_key, "get_project_team", lambda project_id: state["team"])
+    monkeypatch.setattr(
+        virtual_key, "get_project_model_ids", lambda project_id: {MODEL_A, MODEL_B}
+    )
     monkeypatch.setattr(
         virtual_key, "controls_virtual_key", lambda user_id, team_id: state["can_create_key"]
     )
@@ -156,6 +162,55 @@ def test_empty_name_is_rejected(db):
     assert create({"project_id": PROJECT_ID, "name": ""}).status_code == 422
 
 
+def test_chosen_models_are_stored(db):
+    response = create({"project_id": PROJECT_ID, "model_ids": [MODEL_B, MODEL_A, MODEL_B]})
+
+    assert response.status_code == 201
+    assert db["inserted"][0]["model_ids"] == [MODEL_A, MODEL_B]
+
+
+def test_models_are_optional(db):
+    assert create().status_code == 201
+    assert "model_ids" not in db["inserted"][0]
+
+
+def test_model_outside_the_project_is_rejected(db):
+    response = create({"project_id": PROJECT_ID, "model_ids": [MODEL_A, OTHER_MODEL]})
+
+    assert response.status_code == 400
+    assert db["inserted"] == []
+
+
+def test_empty_model_list_is_rejected(db):
+    response = create({"project_id": PROJECT_ID, "model_ids": []})
+
+    assert response.status_code == 422
+    assert db["inserted"] == []
+
+
+def test_model_lookup_failure_is_hidden(db, monkeypatch):
+    def fail(project_id):
+        raise RuntimeError("database password")
+
+    monkeypatch.setattr(virtual_key, "get_project_model_ids", fail)
+
+    response = create({"project_id": PROJECT_ID, "model_ids": [MODEL_A]})
+
+    assert response.status_code == 500
+    assert response.json() == {"message": "Failed to look up project"}
+
+
+def test_models_are_not_looked_up_for_a_caller_who_cannot_create_keys(db, monkeypatch):
+    lookup = MagicMock()
+    monkeypatch.setattr(virtual_key, "get_project_model_ids", lookup)
+    db["user_id"] = "member-1"
+
+    response = create({"project_id": PROJECT_ID, "model_ids": [OTHER_MODEL]})
+
+    assert response.status_code == 403
+    lookup.assert_not_called()
+
+
 def test_past_expiry_is_rejected(db):
     expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
 
@@ -203,6 +258,23 @@ def test_get_project_team_returns_none_for_unknown_project(monkeypatch):
     monkeypatch.setattr(virtual_key, "supabase", fake)
 
     assert virtual_key.get_project_team(PROJECT_ID) is None
+
+
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        ([{"model_ids": [MODEL_A, MODEL_B]}], {MODEL_A, MODEL_B}),
+        ([{"model_ids": None}], set()),
+        ([], set()),
+    ],
+)
+def test_get_project_model_ids(monkeypatch, rows, expected):
+    fake = MagicMock()
+    query = fake.table.return_value.select.return_value.eq.return_value.limit.return_value
+    query.execute.return_value = SimpleNamespace(data=rows)
+    monkeypatch.setattr(virtual_key, "supabase", fake)
+
+    assert virtual_key.get_project_model_ids(PROJECT_ID) == expected
 
 
 def validate(monkeypatch, key_row):

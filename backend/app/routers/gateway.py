@@ -5,11 +5,12 @@ import uuid
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app import budget, config, guardrails, request_log
+import json 
 from app import gateway_logic_helper as logic
-from app.providers import call_prov
+from app.providers import call_prov, open_stream, supp_stream_usage
 from app.routers.db import supabase
 from app.routers.virtual_key import validate_virtual_key, hash_key
 
@@ -131,7 +132,7 @@ def ms_since(started: float)->int:
     return int((time.perf_counter()-started)*1000)
 
 # log_and_respond=Second part of chat_completions (declare first here because the first part=send_to_prov use is in the end)
-def log_and_respond(status_code, payload, row, key, started, request_id):
+def log_and_respond(status_code, payload, row, key, started, request_id, request_text=None):
     #Log the request and answer with JSON (use it for non-streaming answer)
     if status_code >= 400:
         new_status, payload=logic.hide_provider_auth_errors(status_code, payload)
@@ -147,6 +148,9 @@ def log_and_respond(status_code, payload, row, key, started, request_id):
         status_code=status_code,
         latency_ms=ms_since(started),
         request_id=request_id,
+        request_text=request_text,
+        # Only when answer is successful => save
+        response_text=logic.extract_res_text(payload) if status_code < 400 else None,
     )
     if logged_id:
         headers={"X-Request-ID": str(logged_id)}
@@ -155,7 +159,7 @@ def log_and_respond(status_code, payload, row, key, started, request_id):
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 # First part of chat_completions
-def send_to_prov_json(call_endpoint, provider_body, row, key):
+def send_to_prov_json(call_endpoint, provider_body, row, key, request_text=None):
     # Call the provider and wait for the whole answer
     request_id=str(uuid.uuid4())
     started=time.perf_counter()
@@ -176,7 +180,107 @@ def send_to_prov_json(call_endpoint, provider_body, row, key):
             # For the case that it returns 200 OK or 302 found with a non-JSON file.
             if status_code < 400:
                 status_code = 502
-    return log_and_respond(status_code, payload, row, key, started, request_id)    
+    return log_and_respond(status_code, payload, row, key, started, request_id, request_text)    
+
+def send_to_prov_stream(provider_body, row, key, request_text=None):
+    # Sent events when they arrive, then log the finished stream
+    request_id=str(uuid.uuid4())
+    ck_usage=bool((provider_body.get("stream_options") or {}).get("include_usage"))
+    if not ck_usage and supp_stream_usage(row["provider"]):
+        # Ask for token spent to the stream to be priced.
+        # They are hidden unless the caller asked for them.
+        options={**(provider_body.get("stream_options") or {}), "include_usage":True}
+        provider_body={**provider_body, "stream_options":options}
+    
+    started=time.perf_counter()
+    try:
+        upstream=open_stream(row["provider"],"chat", provider_body)
+    except httpx.TimeoutException:
+        return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, key, started, request_id, request_text)
+    except httpx.HTTPError:
+        return log_and_respond(502, {"error":{"message": "Could not reach the provider"}}, row, key, started, request_id, request_text)
+
+    if upstream.status_code>=400:
+        # The provider refused before streaming start => answer with a normal json error
+        status=upstream.status_code
+        try:
+            payload=httpx.Response(status, content=upstream.read()).json()
+        except Exception:
+            payload={"error":{"message": "Provider returned an error"}}
+        finally:
+            upstream.close()
+        return log_and_respond(status,payload, row, key, started, request_id, request_text)
+
+    def events():
+        first_token_ms=None
+        usage=None
+        parts=[] # Answer text that will be saved in response_text
+        status_code=200
+        done_sent=False
+        skip_blank_line=False 
+        try: # Receive each line->yeild then collect TTFT, usage, responses(text)
+            for line in upstream.iter_lines():
+                data=logic.sse_data(line)
+                if data is None:
+                    if line=="" and skip_blank_line:
+                        skip_blank_line=False
+                        continue
+                    yield line+"\n"
+                    continue
+                if data=="[DONE]":
+                    done_sent=True
+                    yield line+"\n"
+                    continue
+                chunk=logic.parse_chunk(data)
+                if chunk is not None:
+                    if chunk.get("error"):
+                        status_code=502 # Provider failed in the middle of stream
+                    if chunk.get("usage"):
+                        usage=chunk["usage"]
+                    if first_token_ms is None and logic.chunk_with_content(chunk):
+                        first_token_ms=ms_since(started)
+                    parts.append(logic.chunk_text(chunk))
+                    if logic.is_usage_only(chunk) and not ck_usage:
+                        skip_blank_line=True 
+                        continue
+                    if chunk.get("usage") and not ck_usage:
+                        # usage shares the chunk with content => strip it
+                        stripped={k: v for k, v in chunk.items() if k != "usage"}
+                        yield "data: "+json.dumps(stripped)+"\n"
+                        continue
+                yield line+"\n"
+            if not done_sent:
+                yield "data: [DONE]\n\n"
+        except httpx.TimeoutException:
+            status_code=504
+            yield logic.error_event("Provider timed out")
+            yield "data: [DONE]\n\n"
+        except httpx.HTTPError:
+            status_code=502
+            yield logic.error_event("The provider connection was lost")
+            yield "data: [DONE]\n\n"
+        except GeneratorExit:
+            status_code=499 # Caller hung up
+            raise
+        finally: # End stream without error
+            upstream.close()
+            request_log.log_request(
+                key=key,
+                model=row,
+                payload={"usage": usage} if usage else {},
+                status_code=status_code,
+                latency_ms=ms_since(started),
+                request_id=request_id,
+                time_to_first_token_ms=first_token_ms,
+                request_text=request_text,
+                response_text="".join(parts) if status_code<400 else None
+            )
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"X-Request-ID": request_id, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 def enforce_guardrails(body:dict, row:dict, key:dict)->dict:
     # H18IALMOND-39: refuse blocked prompts and oversized requests before any provider call
@@ -198,12 +302,17 @@ def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here
     row=resolve_model(body.get("model"), key)
     body=enforce_guardrails(body, row, key)
+    # Take the new message before adding the master prompt
+    request_text=logic.extract_req_text(endpoint, body)
 
     provider_body={**body,"model":row["model"]}
     if endpoint=="chat":
         provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
-    return send_to_prov_json(endpoint, provider_body, row, key)
-
+    if body.get("stream"):
+        if endpoint!="chat":
+            raise HTTPException(400, "Streaming is only available on /chat/completions")
+        return send_to_prov_stream(provider_body, row, key, request_text)
+    return send_to_prov_json(endpoint, provider_body, row, key, request_text)
 
 
 @router.post("/chat/completions")

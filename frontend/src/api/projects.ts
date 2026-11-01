@@ -6,6 +6,8 @@ export type Model = {
   // USD per million tokens.
   price_per_1m_input: number
   price_per_1m_output: number
+  // Where the provider processes the data; "Not specified" when unknown.
+  data_processing_country: string
 }
 
 export type Project = {

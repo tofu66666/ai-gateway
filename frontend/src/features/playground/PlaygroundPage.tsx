@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
 import { CreateKeyDialog } from './CreateKeyDialog'
@@ -84,7 +85,10 @@ export function PlaygroundPage() {
               <SelectContent>
                 {models.data?.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
-                    {option.alias}
+                    <span className="flex items-center gap-2">
+                      {option.alias}
+                      <ProcessedIn model={option} />
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -57,12 +57,22 @@ create table if not exists projects (
   budget_per_month   numeric(12,2),
   warning_threshold  numeric(5,4) not null default 0.8
                        check (warning_threshold > 0 and warning_threshold <= 1),
+  -- Guardrails (H18IALMOND-39): prompts containing any phrase are refused,
+  -- and max_tokens may not go above the cap (null means no cap).
+  blocked_patterns   text[] not null default '{}',
+  max_tokens_cap     integer check (max_tokens_cap > 0),
   created_at         timestamptz not null default now()
 );
 
 alter table projects
   add column if not exists warning_threshold numeric(5,4) not null default 0.8
     check (warning_threshold > 0 and warning_threshold <= 1);
+
+alter table projects
+  add column if not exists blocked_patterns text[] not null default '{}';
+
+alter table projects
+  add column if not exists max_tokens_cap integer check (max_tokens_cap > 0);
 
 create table if not exists virtual_keys (
   id          uuid primary key default gen_random_uuid(),
@@ -173,7 +183,35 @@ begin
 end;
 $$;
 
+-- Replace a project's guardrail settings and audit it in one transaction.
+-- Returns no row if the project is missing.
+create or replace function set_project_guardrails(
+  p_project_id uuid, p_actor_id uuid, p_blocked_patterns text[], p_max_tokens_cap integer
+)
+returns setof projects
+language plpgsql
+as $$
+declare
+  updated projects;
+begin
+  update projects
+  set blocked_patterns = p_blocked_patterns, max_tokens_cap = p_max_tokens_cap
+  where id = p_project_id
+  returning * into updated;
+  if not found then
+    return;
+  end if;
+
+  insert into audits (user_id, action, target_id, details)
+  values (p_actor_id, 'project_guardrails_modify', p_project_id,
+          jsonb_build_object('blocked_patterns', p_blocked_patterns,
+                             'max_tokens_cap', p_max_tokens_cap));
+  return next updated;
+end;
+$$;
+
 -- Only the backend (service role) may call these; Supabase exposes functions
 -- to the public anon key otherwise.
 revoke execute on function revoke_virtual_key(uuid, uuid) from public, anon, authenticated;
 revoke execute on function rotate_virtual_key(uuid, uuid, text, text) from public, anon, authenticated;
+revoke execute on function set_project_guardrails(uuid, uuid, text[], integer) from public, anon, authenticated;

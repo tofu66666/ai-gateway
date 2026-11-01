@@ -4,6 +4,7 @@ import {
   useModels,
   useProjects,
   useRequests,
+  useStats,
   useTeams,
   useTeamUsage,
 } from '@/api/hooks'
@@ -36,10 +37,12 @@ import {
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { PlatformOverview } from './PlatformOverview'
 
-// H18IALMOND-12, -14: your usage and, for team leads and admins, the usage of
-// the teams they lead, filtered. The totals add up GET /requests and
-// GET /team/{id}/requests until GET /stats (H18IALMOND-54) exists.
+// H18IALMOND-12, -14, -54: your usage and, for team leads, the usage of the
+// teams they lead, filtered; admins see every team instead (H18IALMOND-26).
+// GET /stats provides the personal summary while request rows provide
+// filtered breakdowns by model, team, project, and member.
 export function OverviewPage() {
   const user = useCurrentUser()
   const { timeWindow, setTimeWindow } = useTimeWindow()
@@ -50,6 +53,20 @@ export function OverviewPage() {
   const models = useModels()
   const teams = useTeams()
   const projects = useProjects()
+
+  // Keep the end of the stats window stable for this page load.
+  // This prevents rolling time windows from changing on every render
+  // and creating a new React Query key every second.
+  const [statsEnd] = useState(() => Date.now())
+  const sinceDate = windowStart(timeWindow, new Date(statsEnd))
+  const since = sinceDate.getTime()
+  const statsStart = Math.floor(since / 1000)
+  const stats = useStats(
+    user.id,
+    statsStart,
+    Math.floor(statsEnd / 1000),
+  )
+
   const canViewTeamUsage = user.role === 'team_lead' || user.role === 'admin'
   const teamUsage = useTeamUsage(
     canViewTeamUsage ? teams.data : undefined,
@@ -57,22 +74,27 @@ export function OverviewPage() {
     user.role === 'admin',
   )
 
-  const since = windowStart(timeWindow).getTime()
   const teamOf = new Map(projects.data?.map((p) => [p.id, p.team_id]))
+
   // The same filters apply to your usage and to team usage.
   const matches = (row: RequestRow, rowTeam: string | undefined) =>
     new Date(row.created_at).getTime() >= since &&
     (model === 'all' || row.model_id === model) &&
     (team === 'all' || rowTeam === team) &&
     (project === 'all' || row.project_id === project)
+
   const rows = (requests.data ?? []).filter((row) =>
     matches(row, teamOf.get(row.project_id)),
   )
+
   const tokensOf = (list: typeof rows) =>
     list.reduce((sum, row) => sum + row.input_tokens + row.output_tokens, 0)
+
   const costOf = (list: typeof rows) =>
     list.reduce((sum, row) => sum + Number(row.cost), 0)
+
   const spending = costOf(rows)
+
   const byModel = (models.data ?? [])
     .map((option) => {
       const own = rows.filter((row) => row.model_id === option.id)
@@ -85,17 +107,43 @@ export function OverviewPage() {
     })
     .filter((entry) => entry.requests > 0)
     .sort((a, b) => b.cost - a.cost)
-  const shown = (value: string) => (requests.data ? value : '—')
+
+  const hasResourceFilter =
+    model !== 'all' || team !== 'all' || project !== 'all'
+
+  const personalRequests = hasResourceFilter
+    ? rows.length
+    : stats.data?.count
+
+  const personalTokens = hasResourceFilter
+    ? tokensOf(rows)
+    : stats.data
+      ? stats.data.input + stats.data.output
+      : undefined
+
+  const personalSpending = hasResourceFilter
+    ? spending
+    : stats.data?.total_cost
+
+  const personalError = hasResourceFilter ? requests.error : stats.error
+  const personalIsError = hasResourceFilter
+    ? requests.isError
+    : stats.isError
+
+  const shown = (value: string | undefined) => value ?? '—'
 
   const teamRows = (teamUsage.data ?? []).flatMap((entry) =>
     entry.requests.filter((row) => matches(row, entry.team.id)),
   )
+
   const teamSpending = costOf(teamRows)
+
   const emailOf = new Map(
     teamUsage.data?.flatMap((entry) =>
       entry.members.map((member) => [member.user_id, member.email] as const),
     ),
   )
+
   const byMember = [...new Set(teamRows.map((row) => row.user_id))]
     .map((userId) => {
       const own = teamRows.filter((row) => row.user_id === userId)
@@ -108,6 +156,7 @@ export function OverviewPage() {
       }
     })
     .sort((a, b) => b.cost - a.cost)
+
   const teamShown = (value: string) => (teamUsage.data ? value : '—')
 
   function resetFilters() {
@@ -190,7 +239,10 @@ export function OverviewPage() {
                 <SelectContent>
                   <SelectItem value="all">All projects</SelectItem>
                   {projects.data
-                    ?.filter((option) => team === 'all' || option.team_id === team)
+                    ?.filter(
+                      (option) =>
+                        team === 'all' || option.team_id === team,
+                    )
                     .map((option) => (
                       <SelectItem key={option.id} value={option.id}>
                         {option.name}
@@ -209,6 +261,8 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
+      {user.role === 'admin' && <PlatformOverview matches={matches} />}
+
       <div>
         <h2 className="text-lg font-semibold">
           Your Usage & Spending
@@ -218,8 +272,11 @@ export function OverviewPage() {
         </p>
       </div>
 
-      {requests.isError && (
-        <ErrorState title="Couldn't load your usage" error={requests.error} />
+      {personalIsError && personalError && (
+        <ErrorState
+          title="Couldn't load your usage"
+          error={personalError}
+        />
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -227,7 +284,7 @@ export function OverviewPage() {
           <CardHeader>
             <CardDescription>Total Requests</CardDescription>
             <CardTitle className="text-2xl">
-              {shown(rows.length.toLocaleString('en-US'))}
+              {shown(personalRequests?.toLocaleString('en-US'))}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -236,7 +293,7 @@ export function OverviewPage() {
           <CardHeader>
             <CardDescription>Token Usage</CardDescription>
             <CardTitle className="text-2xl">
-              {shown(tokensOf(rows).toLocaleString('en-US'))}
+              {shown(personalTokens?.toLocaleString('en-US'))}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -245,7 +302,9 @@ export function OverviewPage() {
           <CardHeader>
             <CardDescription>Total Spending</CardDescription>
             <CardTitle className="text-2xl">
-              {shown(formatMoney(spending))}
+              {personalSpending === undefined
+                ? '—'
+                : formatMoney(personalSpending)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -275,12 +334,17 @@ export function OverviewPage() {
                   <TableHead>Share</TableHead>
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {byModel.map((entry) => (
                   <TableRow key={entry.alias}>
-                    <TableCell className="font-medium">{entry.alias}</TableCell>
+                    <TableCell className="font-medium">
+                      {entry.alias}
+                    </TableCell>
                     <TableCell>{entry.requests}</TableCell>
-                    <TableCell>{entry.tokens.toLocaleString('en-US')}</TableCell>
+                    <TableCell>
+                      {entry.tokens.toLocaleString('en-US')}
+                    </TableCell>
                     <TableCell>{formatMoney(entry.cost)}</TableCell>
                     <TableCell>
                       {spending > 0
@@ -295,16 +359,14 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
-      {canViewTeamUsage && (
+      {user.role === 'team_lead' && (
         <>
           <div>
             <h2 className="text-lg font-semibold">
               Team Usage & Spending
             </h2>
             <p className="text-sm text-muted-foreground">
-              {user.role === 'admin'
-                ? 'Usage and spending in every team.'
-                : 'Usage and spending in the teams you lead.'}
+              Usage and spending in the teams you lead.
             </p>
           </div>
 
@@ -377,6 +439,7 @@ export function OverviewPage() {
                       </TableCell>
                     </TableRow>
                   )}
+
                   {byMember.map((member) => (
                     <TableRow key={member.userId}>
                       <TableCell className="font-medium break-all whitespace-normal">
@@ -386,10 +449,14 @@ export function OverviewPage() {
                       <TableCell>
                         {member.tokens.toLocaleString('en-US')}
                       </TableCell>
-                      <TableCell>{formatMoney(member.cost)}</TableCell>
+                      <TableCell>
+                        {formatMoney(member.cost)}
+                      </TableCell>
                       <TableCell>
                         {teamSpending > 0
-                          ? `${Math.round((member.cost / teamSpending) * 100)}%`
+                          ? `${Math.round(
+                              (member.cost / teamSpending) * 100,
+                            )}%`
                           : '—'}
                       </TableCell>
                     </TableRow>

@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ProcessedIn } from '@/features/models/ProcessedIn'
 
 // H18IALMOND-52: a project belongs to a team and can only call the models it allows.
 export function CreateProjectDialog({ teamId }: { teamId: string }) {
@@ -105,6 +106,7 @@ export function CreateProjectDialog({ teamId }: { teamId: string }) {
                   }
                 />
                 {model.alias}
+                <ProcessedIn model={model} />
               </Label>
             ))}
           </fieldset>

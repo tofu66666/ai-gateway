@@ -6,6 +6,8 @@ export type Model = {
   // USD per million tokens.
   price_per_1m_input: number
   price_per_1m_output: number
+  // Where the provider processes the data; "Not specified" when unknown.
+  data_processing_country: string
 }
 
 export type Project = {
@@ -15,6 +17,11 @@ export type Project = {
   model_ids: string[]
   budget_per_month: number | null
   spend_this_month: number
+  // The budget state GET /projects adds (H18IALMOND-19).
+  warning_threshold?: number
+  usage_ratio?: number | null
+  warning?: boolean
+  blocked?: boolean
 }
 
 export type CreateProjectRequest = {

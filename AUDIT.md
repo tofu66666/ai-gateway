@@ -49,6 +49,11 @@ target_id: project id
 details: {name, team_id, model_ids, budget_per_month, warning_threshold}
 (if team_id is null then the project has been deleted)
 
+action: project_guardrails_modify
+target_id: project id
+details: {blocked_patterns, max_tokens_cap}
+(written by set_project_guardrails; max_tokens_cap null means no cap)
+
 endpoints:
 
 GET /audit_actions

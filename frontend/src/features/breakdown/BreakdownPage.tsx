@@ -1,9 +1,16 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronRight,
+  Download,
+} from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -35,6 +42,7 @@ import {
   type SortColumn,
 } from './aggregate'
 import { BreakdownFilters } from './BreakdownFilters'
+import { exportBreakdownCsv } from './exportCsv'
 import { SpendChart } from './SpendChart'
 import { useBreakdownData } from './useBreakdownData'
 
@@ -61,6 +69,7 @@ const numberColumns: { column: SortColumn; label: string }[] = [
   { column: 'cost', label: 'Cost' },
   { column: 'share', label: 'Share' },
 ]
+
 const sortColumns: SortColumn[] = [
   'name',
   ...numberColumns.map((entry) => entry.column),
@@ -196,6 +205,24 @@ export function BreakdownPage() {
     nameOf(groupBy, key),
   )
 
+  function exportCsv() {
+    const period =
+      timeWindows.find((option) => option.value === timeWindow)?.label ??
+      timeWindow
+    const now = new Date()
+    const filePeriod = `${now.getFullYear()}-${String(
+      now.getMonth() + 1,
+    ).padStart(2, '0')}`
+
+    exportBreakdownCsv({
+      rows: sorted,
+      groupBy,
+      period,
+      filePeriod,
+      nameOf: (key) => nameOf(groupBy, key),
+    })
+  }
+
   // Day, week and month change only the chart; a week of data reads best by
   // day. The colour of a group stays the same through filters and windows:
   // the most expensive groups over everything loaded take the series colours.
@@ -250,14 +277,28 @@ export function BreakdownPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            Spending by {groupLabels[groupBy].toLowerCase()}
-          </CardTitle>
-          <CardDescription>
-            Day, week and month change only the chart; rows total the whole
-            period. Every request counts for the user who made it and for the
-            team that owns its project.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>
+                Spending by {groupLabels[groupBy].toLowerCase()}
+              </CardTitle>
+              <CardDescription>
+                Day, week and month change only the chart; rows total the whole
+                period. Every request counts for the user who made it and for
+                the team that owns its project.
+              </CardDescription>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={exportCsv}
+              disabled={isPending}
+            >
+              <Download aria-hidden className="size-4" />
+              Export CSV
+            </Button>
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-4">

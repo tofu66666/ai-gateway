@@ -19,6 +19,8 @@ import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { requestMetrics } from './metrics'
+import { TeamBudgets } from './TeamBudgets'
+import { TopConsumers } from './TopConsumers'
 
 const perDay = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
 const percent = new Intl.NumberFormat('en-US', {
@@ -78,7 +80,7 @@ export function PlatformOverview({
   matches: (row: RequestRow, team: string | undefined) => boolean
 }) {
   const { timeWindow } = useTimeWindow()
-  const { rows, isPending, error } = useBreakdownData()
+  const { rows, nameOf, isPending, error } = useBreakdownData()
   const shown = rows.filter((row) => matches(row, row.team_id ?? undefined))
   const metrics = requestMetrics(shown)
   const buckets = costsByBucket(shown, 'team', 'day', windowStart(timeWindow))
@@ -157,6 +159,11 @@ export function PlatformOverview({
           )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+        <TopConsumers rows={shown} nameOf={nameOf} isPending={isPending} />
+        <TeamBudgets />
+      </div>
     </section>
   )
 }

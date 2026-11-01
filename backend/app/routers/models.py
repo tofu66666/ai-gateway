@@ -193,21 +193,24 @@ def create_model(
             detail="Model creation did not return a model",
         )
 
-    supabase.table("audits").insert(
-        {
-            "action": "model_create",
-            "user_id": user.id,
-            "target_id": str(created_model["id"]),
-            "details": {
-                "provider": created_model.get("provider"),
-                "model": created_model.get("model"),
-                "price_per_1m_input": created_model.get("price_per_1m_input"),
-                "price_per_1m_output": created_model.get("price_per_1m_output"),
-                "data_processing_country": created_model.get("data_processing_country"),
-                "data_processing_state": created_model.get("data_processing_state"),
-                "prompt": created_model.get("prompt"),
-            },
-        }
-    ).execute()
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "model_create",
+                "user_id": user.id,
+                "target_id": str(created_model["id"]),
+                "details": {
+                    "provider": created_model.get("provider"),
+                    "model": created_model.get("model"),
+                    "price_per_1m_input": created_model.get("price_per_1m_input"),
+                    "price_per_1m_output": created_model.get("price_per_1m_output"),
+                    "data_processing_country": created_model.get("data_processing_country"),
+                    "data_processing_state": created_model.get("data_processing_state"),
+                    "prompt": created_model.get("prompt"),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
     return created_model

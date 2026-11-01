@@ -281,23 +281,26 @@ def create_project(
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Project creation did not return a project"}
 
-    supabase.table("audits").insert(
-        {
-            "action": "project_create",
-            "user_id": user_id,
-            "target_id": str(created_project["id"]),
-            "details": {
-                "name": created_project.get("name"),
-                "team_id": str(created_project.get("team_id")),
-                "model_ids": [
-                    str(model_id)
-                    for model_id in (created_project.get("model_ids") or [])
-                ],
-                "budget_per_month": created_project.get("budget_per_month"),
-                "warning_threshold": created_project.get("warning_threshold", 0.8),
-            },
-        }
-    ).execute()
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "project_create",
+                "user_id": user_id,
+                "target_id": str(created_project["id"]),
+                "details": {
+                    "name": created_project.get("name"),
+                    "team_id": str(created_project.get("team_id")),
+                    "model_ids": [
+                        str(model_id)
+                        for model_id in (created_project.get("model_ids") or [])
+                    ],
+                    "budget_per_month": created_project.get("budget_per_month"),
+                    "warning_threshold": created_project.get("warning_threshold", 0.8),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
     return created_project
 
@@ -352,30 +355,33 @@ def patch_project(
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Project update did not return a project"}
 
-    supabase.table("audits").insert(
-        {
-            "action": "project_modify",
-            "user_id": current_user.id,
-            "target_id": str(project_id),
-            "details": {
-                "name": updated_project.get("name", project.get("name")),
-                "team_id": str(updated_project.get("team_id", project.get("team_id"))),
-                "model_ids": [
-                    str(model_id)
-                    for model_id in (
-                        updated_project.get("model_ids")
-                        or project.get("model_ids")
-                        or []
-                    )
-                ],
-                "budget_per_month": updated_project.get(
-                    "budget_per_month", project.get("budget_per_month")
-                ),
-                "warning_threshold": updated_project.get(
-                    "warning_threshold", project.get("warning_threshold")
-                ),
-            },
-        }
-    ).execute()
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "project_modify",
+                "user_id": current_user.id,
+                "target_id": str(project_id),
+                "details": {
+                    "name": updated_project.get("name", project.get("name")),
+                    "team_id": str(updated_project.get("team_id", project.get("team_id"))),
+                    "model_ids": [
+                        str(model_id)
+                        for model_id in (
+                            updated_project.get("model_ids")
+                            or project.get("model_ids")
+                            or []
+                        )
+                    ],
+                    "budget_per_month": updated_project.get(
+                        "budget_per_month", project.get("budget_per_month")
+                    ),
+                    "warning_threshold": updated_project.get(
+                        "warning_threshold", project.get("warning_threshold")
+                    ),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
     return with_budget_status(updated_project)

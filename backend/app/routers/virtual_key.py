@@ -232,9 +232,12 @@ def create_api_key(
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Key creation did not return a key"}
 
-    supabase.table("audits").insert(
-        {"action": "create_api_key", "user_id": user.id, "target_id": created_key["id"]}
-    ).execute()
+    try:
+        supabase.table("audits").insert(
+            {"action": "create_api_key", "user_id": user.id, "target_id": created_key["id"]}
+        ).execute()
+    except Exception:
+        pass
 
     # The raw key is a secret shown once, so ask clients and proxies not to cache it.
     response.headers["Cache-Control"] = "no-store"

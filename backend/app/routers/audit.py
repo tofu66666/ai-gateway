@@ -32,7 +32,9 @@ class AuditLogRequest(BaseModel):
     end: int | None = None
 
 
-def add_email_to_row(rows: list[dict], email_by_user_id: dict[str, str | None] | None = None) -> list[dict]:
+def add_email_to_row(
+    rows: list[dict], email_by_user_id: dict[str, str | None] | None = None
+) -> list[dict]:
     """Add the associated user email to each audit entry when available."""
     if email_by_user_id is None:
         users = supabase.auth.admin.list_users(per_page=1000)

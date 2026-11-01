@@ -21,11 +21,13 @@ export function exportBreakdownCsv({
   rows,
   groupBy,
   period,
+  filePeriod,
   nameOf,
 }: {
   rows: GroupTotal[]
   groupBy: GroupBy
   period: string
+  filePeriod: string
   nameOf: (key: string) => string
 }) {
   const csvRows = rows.map((row) => [
@@ -46,7 +48,7 @@ export function exportBreakdownCsv({
   const link = document.createElement('a')
 
   link.href = url
-  link.download = `spend_by_${groupBy}_${period}.csv`
+  link.download = `spend_by_${groupBy}_${filePeriod}.csv`
   link.click()
 
   URL.revokeObjectURL(url)

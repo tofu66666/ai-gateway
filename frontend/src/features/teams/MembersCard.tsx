@@ -3,7 +3,6 @@ import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { queryKeys, useTeamMembers } from '@/api/hooks'
 import { removeTeamMember, saveTeamMember, type TeamMember } from '@/api/teams'
-import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import {
   AlertDialog,
@@ -36,20 +35,16 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { AddMemberDialog } from './AddMemberDialog'
+import { useCanManageTeam } from './useCanManageTeam'
 
 type PermissionChange = { member: TeamMember; canCreateKey: boolean }
 
 // H18IALMOND-51: the team lead (or an admin) decides who is in the team and
 // who may create keys.
 export function MembersCard({ teamId }: { teamId: string }) {
-  const user = useCurrentUser()
   const members = useTeamMembers(teamId)
   const queryClient = useQueryClient()
-  const canManage =
-    user.role === 'admin' ||
-    members.data?.some(
-      (member) => member.is_owner && member.user_id === user.id,
-    ) === true
+  const canManage = useCanManageTeam(teamId)
 
   const permission = useMutation({
     mutationFn: ({ member, canCreateKey }: PermissionChange) =>
@@ -92,14 +87,16 @@ export function MembersCard({ teamId }: { teamId: string }) {
         <CardDescription>
           Who is in this team, and who may create keys for its projects.
         </CardDescription>
-        <CardAction>
-          <AddMemberDialog
-            teamId={teamId}
-            memberEmails={
-              members.data?.map((member) => member.email.toLowerCase()) ?? []
-            }
-          />
-        </CardAction>
+        {canManage && (
+          <CardAction>
+            <AddMemberDialog
+              teamId={teamId}
+              memberEmails={
+                members.data?.map((member) => member.email.toLowerCase()) ?? []
+              }
+            />
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         {members.isPending && (

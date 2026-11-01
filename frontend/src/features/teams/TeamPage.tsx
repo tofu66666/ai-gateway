@@ -24,6 +24,7 @@ import {
 import { formatMoney } from '@/lib/format'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { MembersCard } from './MembersCard'
+import { useCanManageTeam } from './useCanManageTeam'
 
 // One team: its projects and its members (H18IALMOND-51, -52).
 export function TeamPage() {
@@ -66,6 +67,7 @@ export function TeamPage() {
 function ProjectsCard({ teamId }: { teamId: string }) {
   const projects = useProjects(teamId)
   const models = useModels()
+  const canManage = useCanManageTeam(teamId)
   const aliases = new Map(models.data?.map((model) => [model.id, model.alias]))
 
   return (
@@ -76,9 +78,11 @@ function ProjectsCard({ teamId }: { teamId: string }) {
           Keys are issued per project, and its requests count against its
           budget.
         </CardDescription>
-        <CardAction>
-          <CreateProjectDialog teamId={teamId} />
-        </CardAction>
+        {canManage && (
+          <CardAction>
+            <CreateProjectDialog teamId={teamId} />
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         {projects.isPending && (

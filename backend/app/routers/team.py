@@ -187,7 +187,7 @@ def create_team(
                 "action": "team_add_user",
                 "user_id": user_id,
                 "target_id": team_id,
-                "details": {"user_id": owner_id},
+                "details": {"user_id": owner_id, "can_create_key": True},
             }
         ).execute()
     except Exception:
@@ -463,7 +463,10 @@ def upsert_user_team_mapping(
                     "action": "team_add_user",
                     "user_id": current_user.id,
                     "target_id": payload.team_id,
-                    "details": {"user_id": payload.user_id},
+                    "details": {
+                        "user_id": payload.user_id,
+                        "can_create_key": payload.can_create_key,
+                    },
                 }
             ).execute()
         except Exception:

@@ -12,7 +12,7 @@ target_id: old key id
 
 action: team_add_user
 target_id: team_id
-details: {user_id}
+details: {user_id, can_create_key}
 
 action: team_remove_user
 target_id: team_id

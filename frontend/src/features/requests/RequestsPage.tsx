@@ -4,6 +4,7 @@ import type { Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -19,11 +20,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import type { BreakdownRow } from '@/features/breakdown/aggregate'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatDateTime, formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { type RequestFilter, requestFilters, valueOf } from './filters'
+import { RequestDetails } from './RequestDetails'
 import { RequestFilters } from './RequestFilters'
+
+const pageSize = 25
 
 // Admins also get each model's provider.
 type ProviderModel = Model & { provider?: string }
@@ -65,6 +70,7 @@ export function RequestsPage() {
         else next.set(by, value)
         // Another team's projects are not in this one.
         if (by === 'team') next.delete('project')
+        next.delete('page')
         return next
       },
       { replace: true },
@@ -109,6 +115,37 @@ export function RequestsPage() {
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )
+  // The page is in the URL too; a shorter list shows its last page.
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize))
+  const page = Math.min(Math.max(1, Number(params.get('page')) || 1), pages)
+  const visible = shown.slice((page - 1) * pageSize, page * pageSize)
+  function setPage(to: number) {
+    setParams(
+      (next) => {
+        if (to <= 1) next.delete('page')
+        else next.set('page', String(to))
+        return next
+      },
+      { replace: true },
+    )
+  }
+  const detailsOf = (row: BreakdownRow): [string, string][] => [
+    ['Request', row.id],
+    ['Time', formatDateTime(row.created_at)],
+    ['User', nameOf('user', row.user_id)],
+    ['Team', row.team_id ? nameOf('team', row.team_id) : '—'],
+    ['Project', nameOf('project', row.project_id)],
+    ['Key', keyOf(row.key_id)],
+    ['Model', nameOf('model', row.model_id)],
+    ...(isAdmin
+      ? [['Provider', providerOf.get(row.model_id) ?? '—'] as [string, string]]
+      : []),
+    ['Input tokens', row.input_tokens.toLocaleString('en-US')],
+    ['Output tokens', row.output_tokens.toLocaleString('en-US')],
+    ['Cost', formatMoney(row.cost)],
+    ['Latency', row.latency === null ? '—' : `${row.latency} ms`],
+    ['Status', String(row.status)],
+  ]
 
   return (
     <div className="space-y-6">
@@ -125,6 +162,7 @@ export function RequestsPage() {
           setParams(
             (next) => {
               requestFilters.forEach((by) => next.delete(by))
+              next.delete('page')
               return next
             },
             { replace: true },
@@ -157,11 +195,14 @@ export function RequestsPage() {
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead className="text-right">Latency</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>
+                  <span className="sr-only">Details</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
 
             <TableBody>
-              {shown.map((row) => (
+              {visible.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell>{formatDateTime(row.created_at)}</TableCell>
                   <TableCell>{nameOf('user', row.user_id)}</TableCell>
@@ -196,12 +237,18 @@ export function RequestsPage() {
                       {row.status}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    <RequestDetails
+                      time={formatDateTime(row.created_at)}
+                      fields={detailsOf(row)}
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
               {shown.length === 0 && !error && (
                 <TableRow>
                   <TableCell
-                    colSpan={isAdmin ? 11 : 10}
+                    colSpan={isAdmin ? 12 : 11}
                     className="h-24 text-center text-muted-foreground"
                   >
                     {isPending
@@ -214,6 +261,33 @@ export function RequestsPage() {
               )}
             </TableBody>
           </Table>
+
+          {shown.length > pageSize && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-4 text-sm text-muted-foreground">
+              <p>
+                {(page - 1) * pageSize + 1}–
+                {Math.min(page * pageSize, shown.length)} of {shown.length}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= pages}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -1,3 +1,4 @@
+import { Download } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useKeys, useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
@@ -7,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -24,6 +26,7 @@ import type { BreakdownRow } from '@/features/breakdown/aggregate'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatDateTime, formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { downloadCsv, toCsv } from './csv'
 import { type RequestFilter, requestFilters, valueOf } from './filters'
 import { RequestDetails } from './RequestDetails'
 import { RequestFilters } from './RequestFilters'
@@ -147,6 +150,34 @@ export function RequestsPage() {
     ['Status', String(row.status)],
   ]
 
+  // Every filtered request, not just this page, in the table's columns;
+  // numbers stay numbers so a spreadsheet can add them up.
+  function exportCsv() {
+    const columns: [string, (row: BreakdownRow) => string | number][] = [
+      ['Time', (row) => row.created_at],
+      ['User', (row) => nameOf('user', row.user_id)],
+      ['Project', (row) => nameOf('project', row.project_id)],
+      ['Key', (row) => keyOf(row.key_id)],
+      ['Model', (row) => nameOf('model', row.model_id)],
+      ['Provider', (row) => providerOf.get(row.model_id) ?? ''],
+      ['Input tokens', (row) => row.input_tokens],
+      ['Output tokens', (row) => row.output_tokens],
+      ['Cost (USD)', (row) => Number(row.cost)],
+      ['Latency (ms)', (row) => row.latency ?? ''],
+      ['Status', (row) => String(row.status)],
+    ]
+    const shownColumns = isAdmin
+      ? columns
+      : columns.filter(([header]) => header !== 'Provider')
+    downloadCsv(
+      `requests_${timeWindow}`,
+      toCsv([
+        shownColumns.map(([header]) => header),
+        ...shown.map((row) => shownColumns.map(([, value]) => value(row))),
+      ]),
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -177,6 +208,17 @@ export function RequestsPage() {
             One row per model request. Usage only: prompts and responses are not
             shown.
           </CardDescription>
+          <CardAction>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={shown.length === 0}
+              onClick={exportCsv}
+            >
+              <Download />
+              Export CSV
+            </Button>
+          </CardAction>
         </CardHeader>
 
         <CardContent>

@@ -73,8 +73,13 @@ create table if not exists virtual_keys (
   prefix      text not null,
   expires_at  timestamptz not null default now() + interval '30 days',
   revoked_at  timestamptz,
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  -- The project models this key may use. Empty means all of them.
+  model_ids   uuid[] not null default '{}'
 );
+
+alter table virtual_keys
+  add column if not exists model_ids uuid[] not null default '{}';
 
 create table if not exists requests (
   id                  uuid primary key default gen_random_uuid(),
@@ -135,8 +140,8 @@ begin
 end;
 $$;
 
--- Swap an active, unexpired key for a new one (same project, user and name)
--- and audit it, all in one transaction. Returns the new key, or no row if the
+-- Swap an active, unexpired key for a new one (same project, user, name and
+-- models) and audit it, all in one transaction. Returns the new key, or no row if the
 -- old key is missing, revoked or expired.
 create or replace function rotate_virtual_key(
   p_key_id uuid, p_actor_id uuid, p_hash text, p_prefix text
@@ -156,8 +161,9 @@ begin
     return;
   end if;
 
-  insert into virtual_keys (project_id, user_id, name, hash, prefix)
-  values (old_key.project_id, old_key.user_id, old_key.name, p_hash, p_prefix)
+  insert into virtual_keys (project_id, user_id, name, hash, prefix, model_ids)
+  values (old_key.project_id, old_key.user_id, old_key.name, p_hash, p_prefix,
+          old_key.model_ids)
   returning * into new_key;
 
   insert into audits (user_id, action, target_id, details)

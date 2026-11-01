@@ -2,10 +2,11 @@ import { useMutation } from '@tanstack/react-query'
 import { Copy, KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useProjects, useTeams } from '@/api/hooks'
+import { useModels, useProjects, useTeams } from '@/api/hooks'
 import { createKey } from '@/api/keys'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -39,9 +40,17 @@ export function CreateKeyDialog({
 }: CreateKeyDialogProps) {
   const [open, setOpen] = useState(false)
   const [projectId, setProjectId] = useState('')
+  const [modelIds, setModelIds] = useState<string[]>([])
   const projects = useProjects()
   const teams = useTeams()
+  const models = useModels()
   const teamNames = new Map(teams.data?.map((team) => [team.id, team.name]))
+  const chosenProject = projects.data?.find(
+    (project) => project.id === projectId,
+  )
+  const projectModels = models.data?.filter((model) =>
+    chosenProject?.model_ids.includes(model.id),
+  )
   const create = useMutation({
     mutationFn: createKey,
     onSuccess: () => onCreated?.(),
@@ -53,8 +62,20 @@ export function CreateKeyDialog({
     if (!next) {
       // Closing forgets the key, so it is shown once.
       create.reset()
-      setProjectId('')
+      changeProject('')
     }
+  }
+
+  // Another project allows different models, so the choice starts again.
+  function changeProject(id: string) {
+    setProjectId(id)
+    setModelIds([])
+  }
+
+  function toggleModel(id: string, checked: boolean) {
+    setModelIds((ids) =>
+      checked ? [...ids, id] : ids.filter((other) => other !== id),
+    )
   }
 
   function copy(key: string) {
@@ -119,7 +140,7 @@ export function CreateKeyDialog({
         ) : (
           <div className="space-y-2">
             <Label htmlFor="key-project">Project</Label>
-            <Select value={projectId} onValueChange={setProjectId}>
+            <Select value={projectId} onValueChange={changeProject}>
               <SelectTrigger id="key-project" className="w-full">
                 <SelectValue placeholder="Select project" />
               </SelectTrigger>
@@ -138,6 +159,31 @@ export function CreateKeyDialog({
                 title="Couldn't load your projects"
                 error={projects.error}
               />
+            )}
+
+            {chosenProject && (
+              <fieldset className="space-y-2 pt-2">
+                <legend className="text-sm font-medium">Allowed models</legend>
+                <p className="text-xs text-muted-foreground">
+                  Leave all unticked to allow every model in this project.
+                </p>
+                {models.isError && (
+                  <p className="text-sm text-destructive">
+                    {models.error.message}
+                  </p>
+                )}
+                {projectModels?.map((model) => (
+                  <Label key={model.id} className="font-normal">
+                    <Checkbox
+                      checked={modelIds.includes(model.id)}
+                      onCheckedChange={(checked) =>
+                        toggleModel(model.id, checked === true)
+                      }
+                    />
+                    {model.alias}
+                  </Label>
+                ))}
+              </fieldset>
             )}
 
             {create.isError && (
@@ -172,7 +218,12 @@ export function CreateKeyDialog({
               <Button
                 type="button"
                 disabled={!projectId || create.isPending}
-                onClick={() => create.mutate(projectId)}
+                onClick={() =>
+                  create.mutate({
+                    project_id: projectId,
+                    model_ids: modelIds.length > 0 ? modelIds : undefined,
+                  })
+                }
               >
                 {create.isPending ? 'Creating...' : 'Create key'}
               </Button>

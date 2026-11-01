@@ -14,7 +14,7 @@ from app.routers import gateway
 client=TestClient(app)
 AUTH={"Authorization": "Bearer vktest"}
 MODEL={"id":"m1", "alias":"mq", "provider":"google", "model":"gemini-3.5-flash-lite"}
-KEY={"user_id":"u1", "project_id":"p1","model_ids":["m1"]}
+KEY={"user_id":"u1", "project_id":"p1","model_ids":["m1"],"key_model_ids":[]}
 BODY={"model":"mq", "messages":[{"role": "user", "content": "hi"}]}
 REPLY={"choices":[{"message":{"role":"assistant","content": "hello"}}]}
 USAGE_REPLY={**REPLY,"usage":{"prompt_tokens":1000, "completion_tokens":500}}
@@ -89,6 +89,23 @@ def test_get_key(monkeypatch):
     monkeypatch.setattr(gateway,"get_proj_m_ids", lambda project_id:["m1"])
     cred=HTTPAuthorizationCredentials(scheme="Bearer",credentials="vktest")
     assert gateway.get_key(cred)=={**KEY, "key_id":"k1"}
+
+# get_key passes on the models the key is limited to
+def test_get_key_includes_key_models(monkeypatch):
+    monkeypatch.setattr(
+        gateway, "validate_virtual_key",
+        lambda response, credentials:{
+            "user_id": "u1",
+            "project_id": "p1",
+            "key_id": "k1",
+            "model_ids": ["m1"],
+        },
+    )
+    monkeypatch.setattr(gateway,"get_proj_m_ids", lambda project_id:["m1","m2"])
+    cred=HTTPAuthorizationCredentials(scheme="Bearer",credentials="vktest")
+    key=gateway.get_key(cred)
+    assert key["model_ids"]==["m1","m2"]
+    assert key["key_model_ids"]==["m1"]
 
 
 @pytest.mark.parametrize(
@@ -213,6 +230,52 @@ def test_unknown_alias(monkeypatch):
 def test_model_not_allowed_for_project(monkeypatch):
     fake_auth(monkeypatch, key={**KEY, "model_ids":["others"]})
     assert post().status_code == 403
+
+# Project allows the model, but the key is limited to other models: 403, no provider call
+def test_model_not_allowed_for_key(monkeypatch):
+    fake_auth(monkeypatch, key={**KEY, "model_ids":["m1","m2"], "key_model_ids":["m2"]})
+    logged=fake_log(monkeypatch)
+    provider=MagicMock()
+    monkeypatch.setattr(gateway, "call_prov", provider)
+    r=post()
+
+    assert r.status_code == 403
+    assert "not allowed for this key" in r.json()["detail"]
+    provider.assert_not_called()
+    assert logged==[]
+
+# Model is on the key's list and the project's: goes through
+def test_model_on_key_list(monkeypatch):
+    fake_auth(monkeypatch, key={**KEY, "model_ids":["m1","m2"], "key_model_ids":["m1"]})
+    fake_log(monkeypatch)
+    fake_provider(monkeypatch, response=httpx.Response(200, json=REPLY))
+    assert post().status_code == 200
+
+# Empty list on the key: every model of the project
+def test_key_without_a_list_uses_all_project_models(monkeypatch):
+    fake_auth(monkeypatch, key={**KEY, "key_model_ids":[]})
+    fake_log(monkeypatch)
+    fake_provider(monkeypatch, response=httpx.Response(200, json=REPLY))
+    assert post().status_code == 200
+
+# Model is on the key's list but the project removed it: the project wins
+def test_model_removed_from_project_stops_working_on_key(monkeypatch):
+    fake_auth(monkeypatch, key={**KEY, "model_ids":["m2"], "key_model_ids":["m1"]})
+    provider=MagicMock()
+    monkeypatch.setattr(gateway, "call_prov", provider)
+    r=post()
+
+    assert r.status_code == 403
+    assert "not allowed for this project" in r.json()["detail"]
+    provider.assert_not_called()
+
+# Every model on the key's list was removed: refused, not treated as "no list"
+def test_key_whose_models_were_all_removed_stays_limited(monkeypatch):
+    fake_auth(monkeypatch, key={**KEY, "model_ids":["m1"], "key_model_ids":["gone"]})
+    r=post()
+
+    assert r.status_code == 403
+    assert "not allowed for this key" in r.json()["detail"]
 
 # Unsupported provider 501
 def test_unsupported_provider(monkeypatch):

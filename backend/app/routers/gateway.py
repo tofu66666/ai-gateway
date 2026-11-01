@@ -92,20 +92,25 @@ def get_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
         "user_id": vk["user_id"],
         "project_id": vk["project_id"],
         "key_id": key_id,
-        "model_ids": get_proj_m_ids(vk["project_id"])
+        "model_ids": get_proj_m_ids(vk["project_id"]),
+        # Empty means the key may use all of the project's models
+        "key_model_ids": vk.get("model_ids") or []
     }
 
 def resolve_model(name:object, key:dict)->dict:
     # Find the model,
-    # Refuse it, if it is not allowed to the project (403)
+    # Refuse it, if it is not allowed to the project or the key (403)
     # If it is wrong kind for this endpoint, 400
     if not name or not isinstance(name, str):
-        raise HTTPException(400, "'model' is required")    
+        raise HTTPException(400, "'model' is required")
     row=logic.pick_model(name, get_allowed_models(key["model_ids"]))
     if row is None:
         if model_exists(name):
             raise HTTPException(403, f"Model '{name}' is not allowed for this project")
         raise HTTPException(404, f"Unknown model '{name}'")
+    key_models={str(i) for i in key.get("key_model_ids") or []}
+    if key_models and str(row["id"]) not in key_models:
+        raise HTTPException(403, f"Model '{name}' is not allowed for this key")
     return row
 
 

@@ -13,6 +13,9 @@ export type RequestRow = {
   status: string
   latency: number | null
   created_at: string
+  // The key used. GET /team/{id}/requests sends it; GET /requests does not
+  // list it yet.
+  key_id?: string | null
 }
 
 // The caller's requests. The endpoint is still to come.

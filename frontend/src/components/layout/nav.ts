@@ -1,5 +1,6 @@
 import {
   Boxes,
+  ChartColumnStacked,
   KeyRound,
   LayoutDashboard,
   ListOrdered,
@@ -26,6 +27,13 @@ export const navItems: NavItem[] = [
     path: '/overview',
     label: 'Overview',
     icon: LayoutDashboard,
+    roles: everyone,
+    usesTimeWindow: true,
+  },
+  {
+    path: '/breakdown',
+    label: 'Breakdown',
+    icon: ChartColumnStacked,
     roles: everyone,
     usesTimeWindow: true,
   },

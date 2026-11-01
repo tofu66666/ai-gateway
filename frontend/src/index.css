@@ -73,11 +73,16 @@
   --border: #e5e7eb;
   --input: #e5e7eb;
   --ring: #4f46e5;
-  --chart-1: #4f46e5;
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Chart series, in this order (H18IALMOND-27). Validated as a set for colour
+     blindness on the white card; text never takes these colours. */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #6250d6;
+  --chart-other: #c3c2b7;
   --radius: 0.625rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #1f2937;

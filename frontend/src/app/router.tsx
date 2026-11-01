@@ -4,6 +4,7 @@ import { RequireRole } from '@/auth/RequireRole'
 import { AppShell } from '@/components/layout/AppShell'
 import { leadsAndAdmins } from '@/components/layout/nav'
 import { AuthRoute } from '@/features/auth/AuthRoute'
+import { BreakdownPage } from '@/features/breakdown/BreakdownPage'
 import { KeysPage } from '@/features/keys/KeysPage'
 import { ModelsPage } from '@/features/models/ModelsPage'
 import { OverviewPage } from '@/features/overview/OverviewPage'
@@ -23,6 +24,7 @@ export function AppRoutes() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
+          <Route path="breakdown" element={<BreakdownPage />} />
           <Route path="playground" element={<PlaygroundPage />} />
           <Route element={<RequireRole roles={leadsAndAdmins} />}>
             <Route path="teams" element={<TeamsPage />} />

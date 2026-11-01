@@ -15,7 +15,6 @@ import { AddModelDialog } from './AddModelDialog'
 
 // Admins also get the provider and the provider's model name.
 type PricedModel = Model & {
-  data_processing_country?: string
   provider?: string
   model?: string
 }

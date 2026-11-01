@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { formatDate } from '@/lib/format'
 
 type CreateKeyDialogProps = {
@@ -181,6 +182,7 @@ export function CreateKeyDialog({
                       }
                     />
                     {model.alias}
+                    <ProcessedIn model={model} />
                   </Label>
                 ))}
               </fieldset>

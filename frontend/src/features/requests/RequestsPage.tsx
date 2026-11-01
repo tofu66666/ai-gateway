@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router'
 import { useKeys, useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
@@ -21,6 +22,8 @@ import {
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatDateTime, formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { type RequestFilter, requestFilters, valueOf } from './filters'
+import { RequestFilters } from './RequestFilters'
 
 // Admins also get each model's provider.
 type ProviderModel = Model & { provider?: string }
@@ -42,19 +45,70 @@ export function RequestsPage() {
   const keys = useKeys()
   const models = useModels()
   const { timeWindow } = useTimeWindow()
+  const [params, setParams] = useSearchParams()
   const prefixOf = new Map(keys.data?.map((key) => [key.id, key.prefix]))
   const providerOf = new Map(
     models.data?.map((model: ProviderModel) => [model.id, model.provider]),
   )
+  const keyOf = (keyId: string | null | undefined) =>
+    keyId ? `${prefixOf.get(keyId) ?? keyId.slice(0, 8)}...` : '—'
+
+  // The filters live in the URL, so a filtered view can be shared.
+  const filters = Object.fromEntries(
+    requestFilters.map((by) => [by, params.get(by) ?? 'all']),
+  ) as Record<RequestFilter, string>
+  const filtering = requestFilters.some((by) => filters[by] !== 'all')
+  function setFilter(by: RequestFilter, value: string) {
+    setParams(
+      (next) => {
+        if (value === 'all') next.delete(by)
+        else next.set(by, value)
+        // Another team's projects are not in this one.
+        if (by === 'team') next.delete('project')
+        return next
+      },
+      { replace: true },
+    )
+  }
+  // Options come from every loaded request; projects follow the chosen team.
+  const optionsFor = (by: RequestFilter) => {
+    const values = new Set(
+      rows
+        .filter(
+          (row) =>
+            by !== 'project' ||
+            filters.team === 'all' ||
+            row.team_id === filters.team,
+        )
+        .map(valueOf[by]),
+    )
+    values.delete('')
+    return [...values]
+      .map((value) => ({
+        value,
+        label:
+          by === 'key'
+            ? keyOf(value)
+            : by === 'status'
+              ? value
+              : nameOf(by, value),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }
+
   const since = windowStart(timeWindow).getTime()
   const shown = rows
-    .filter((row) => new Date(row.created_at).getTime() >= since)
+    .filter(
+      (row) =>
+        new Date(row.created_at).getTime() >= since &&
+        requestFilters.every(
+          (by) => filters[by] === 'all' || valueOf[by](row) === filters[by],
+        ),
+    )
     .sort(
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )
-  const keyOf = (keyId: string | null | undefined) =>
-    keyId ? `${prefixOf.get(keyId) ?? keyId.slice(0, 8)}...` : '—'
 
   return (
     <div className="space-y-6">
@@ -62,6 +116,21 @@ export function RequestsPage() {
         <h1 className="text-2xl font-semibold">Request History</h1>
         <p className="text-muted-foreground">{scopes[user.role]}</p>
       </div>
+
+      <RequestFilters
+        filters={filters}
+        optionsFor={optionsFor}
+        onChange={setFilter}
+        onReset={() =>
+          setParams(
+            (next) => {
+              requestFilters.forEach((by) => next.delete(by))
+              return next
+            },
+            { replace: true },
+          )
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -137,7 +206,9 @@ export function RequestsPage() {
                   >
                     {isPending
                       ? 'Loading requests...'
-                      : 'No requests in this period.'}
+                      : filtering
+                        ? 'No requests match these filters in this period.'
+                        : 'No requests in this period.'}
                   </TableCell>
                 </TableRow>
               )}

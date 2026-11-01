@@ -155,7 +155,7 @@ def create_team(
     try:
         supabase.table("user_team_mappings").insert(
             {
-                "user_id": user_id,
+                "user_id": owner_id,
                 "team_id": team_id,
                 "can_create_key": True,
             }

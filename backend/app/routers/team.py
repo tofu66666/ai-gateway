@@ -58,12 +58,7 @@ def get_team_by_id(team_id: str) -> dict | None:
 
 def update_team(team_id: str, changes: dict) -> dict | None:
     """Update one team and return the updated database row."""
-    response = (
-        supabase.table("teams")
-        .update(changes)
-        .eq("id", team_id)
-        .execute()
-    )
+    response = supabase.table("teams").update(changes).eq("id", team_id).execute()
     rows = response.data or []
     if rows:
         return rows[0]
@@ -149,22 +144,48 @@ def create_team(
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": f"Failed to create team: {str(e)}"}
+    team_id = (
+        supabase.table("teams")
+        .select("id")
+        .eq("name", payload.name)
+        .eq("owner_id", owner_id)
+        .execute()
+        .data[0]["id"]
+    )
     try:
         supabase.table("user_team_mappings").insert(
             {
                 "user_id": user_id,
-                "team_id": supabase.table("teams")
-                .select("id")
-                .eq("name", payload.name)
-                .eq("owner_id", owner_id)
-                .execute()
-                .data[0]["id"],
+                "team_id": team_id,
                 "can_create_key": True,
             }
         ).execute()
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": f"Team created but failed to link user to team: {str(e)}"}
+
+    supabase.table("audits").insert(
+        {
+            "action": "team_add_user",
+            "user_id": user_id,
+            "target_id": team_id,
+            "details": {"user_id": owner_id},
+        }
+    ).execute()
+
+    supabase.table("audits").insert(
+        {
+            "action": "team_create",
+            "user_id": user_id,
+            "target_id": team_id,
+            "details": {
+                "owner_id": owner_id,
+                "name": payload.name,
+                "budget_per_month": payload.budget_per_month,
+                "warning_threshold": 0.8,
+            },
+        }
+    ).execute()
 
     return {
         "status": "ok",
@@ -229,6 +250,15 @@ def change_owner(
     except:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to change team owner"}
+
+    supabase.table("audits").insert(
+        {
+            "action": "team_modify_owner",
+            "user_id": user_id,
+            "target_id": payload.team_id,
+            "details": {"user_id": payload.new_owner_id},
+        }
+    ).execute()
 
     return {
         "status": "ok",
@@ -296,7 +326,9 @@ def get_team(
             return {"message": "Failed to check team membership"}
         if not allowed:
             response.status_code = status.HTTP_403_FORBIDDEN
-            return {"message": "Forbidden: only team members or an admin can view the team"}
+            return {
+                "message": "Forbidden: only team members or an admin can view the team"
+            }
 
     try:
         spend = get_team_spend(team_id)
@@ -333,9 +365,8 @@ def patch_team(
         return {"message": "Team not found"}
 
     is_admin = current_user.role == "admin"
-    is_team_lead = (
-        current_user.role == "team_lead"
-        and current_user.id == str(team["owner_id"])
+    is_team_lead = current_user.role == "team_lead" and current_user.id == str(
+        team["owner_id"]
     )
     if not (is_admin or is_team_lead):
         response.status_code = status.HTTP_403_FORBIDDEN
@@ -352,6 +383,20 @@ def patch_team(
     if updated_team is None:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Team update did not return a team"}
+
+    supabase.table("audits").insert(
+        {
+            "action": "team_modify",
+            "user_id": current_user.id,
+            "target_id": team_id,
+            "details": {
+                "owner_id": updated_team.get("owner_id"),
+                "name": updated_team.get("name"),
+                "budget_per_month": updated_team.get("budget_per_month"),
+                "warning_threshold": updated_team.get("warning_threshold"),
+            },
+        }
+    ).execute()
 
     try:
         return with_team_budget_status(updated_team, get_team_spend(team_id))
@@ -400,6 +445,14 @@ def upsert_user_team_mapping(
             },
             on_conflict="user_id,team_id",
         ).execute()
+        supabase.table("audits").insert(
+            {
+                "action": "team_add_user",
+                "user_id": current_user.id,
+                "target_id": payload.team_id,
+                "details": {"user_id": payload.user_id},
+            }
+        ).execute()
         return {"status": "ok", "message": "User-team mapping upserted successfully"}
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -446,6 +499,14 @@ def delete_user_team_mapping(
             .eq("team_id", payload.team_id)
             .execute()
         )
+        supabase.table("audits").insert(
+            {
+                "action": "team_remove_user",
+                "user_id": current_user.id,
+                "target_id": payload.team_id,
+                "details": {"user_id": payload.user_id},
+            }
+        ).execute()
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": f"Failed to delete user-team mapping: {str(e)}"}

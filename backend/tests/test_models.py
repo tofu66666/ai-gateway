@@ -3,6 +3,7 @@
 import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 
@@ -285,3 +286,128 @@ def test_insert_model_returns_created_row(monkeypatch):
     database.table.assert_called_once_with("models")
     query.insert.assert_called_once_with({"alias": "gateway-small"})
     query.insert.return_value.select.assert_called_once_with(models.MODEL_WRITE_COLUMNS)
+
+
+def price_payload(**overrides):
+    values = {
+        "price_per_1m_input": "0.50",
+        "price_per_1m_output": "2.00",
+    }
+    values.update(overrides)
+    return models.ModelPriceUpdateRequest(**values)
+
+
+def test_price_update_route_requires_bearer_authentication():
+    response = TestClient(app).patch(
+        f"/models/{MODEL_ROW['id']}/price",
+        json={
+            "price_per_1m_input": "0.50",
+            "price_per_1m_output": "2.00",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+def test_admin_can_update_model_prices(monkeypatch):
+    updated = {
+        **MODEL_ROW,
+        "price_per_1m_input": "0.50",
+        "price_per_1m_output": "2.00",
+    }
+    update = MagicMock(return_value=updated)
+    monkeypatch.setattr(models, "update_model_price", update)
+
+    result = models.patch_model_price(
+        UUID(MODEL_ROW["id"]), price_payload(), ADMIN
+    )
+
+    assert result == updated
+    update.assert_called_once_with(
+        UUID(MODEL_ROW["id"]),
+        {
+            "price_per_1m_input": "0.50",
+            "price_per_1m_output": "2.00",
+        },
+    )
+
+
+def test_non_admin_cannot_update_model_prices(monkeypatch):
+    update = MagicMock()
+    monkeypatch.setattr(models, "update_model_price", update)
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_price(UUID(MODEL_ROW["id"]), price_payload(), USER)
+
+    assert error.value.status_code == 403
+    assert error.value.detail == "Only administrators can update model prices"
+    update.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"price_per_1m_output": "2.00"},
+        {"price_per_1m_input": "-0.01", "price_per_1m_output": "2.00"},
+        {"price_per_1m_input": "0.50", "price_per_1m_output": "0.0000001"},
+        {
+            "price_per_1m_input": "0.50",
+            "price_per_1m_output": "2.00",
+            "unexpected": "field",
+        },
+    ],
+)
+def test_price_update_payload_rejects_invalid_values(values):
+    with pytest.raises(ValidationError):
+        models.ModelPriceUpdateRequest(**values)
+
+
+def test_price_update_returns_not_found(monkeypatch):
+    monkeypatch.setattr(models, "update_model_price", MagicMock(return_value=None))
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_price(UUID(MODEL_ROW["id"]), price_payload(), ADMIN)
+
+    assert error.value.status_code == 404
+    assert error.value.detail == "Model not found"
+
+
+def test_price_update_hides_database_error(monkeypatch):
+    monkeypatch.setattr(
+        models,
+        "update_model_price",
+        MagicMock(side_effect=RuntimeError("database password")),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_price(UUID(MODEL_ROW["id"]), price_payload(), ADMIN)
+
+    assert error.value.status_code == 500
+    assert error.value.detail == "Failed to update model prices"
+
+
+def test_update_model_price_returns_updated_row(monkeypatch):
+    updated = {
+        **MODEL_ROW,
+        "price_per_1m_input": "0.50",
+        "price_per_1m_output": "2.00",
+    }
+    query = MagicMock()
+    query.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[updated]
+    )
+    database = MagicMock()
+    database.table.return_value = query
+    monkeypatch.setattr(models, "supabase", database)
+    price_data = {
+        "price_per_1m_input": "0.50",
+        "price_per_1m_output": "2.00",
+    }
+
+    result = models.update_model_price(UUID(MODEL_ROW["id"]), price_data)
+
+    assert result == updated
+    database.table.assert_called_once_with("models")
+    query.update.assert_called_once_with(price_data)
+    query.update.return_value.eq.assert_called_once_with("id", MODEL_ROW["id"])

@@ -69,6 +69,9 @@ export function SpendChart({
     const all = other ? [...named, { ...other, cost: rest }] : named
     return all.filter((segment) => segment.cost > 1e-12)
   }
+  // One series, as on the Overview (H18IALMOND-26), needs no legend: the
+  // caption names it.
+  const legend = [...series, ...(other ? [other] : [])]
 
   return (
     <figure className="space-y-3">
@@ -76,8 +79,13 @@ export function SpendChart({
         <figcaption className="text-sm font-medium">
           Spend per {granularity} (USD)
         </figcaption>
-        <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {[...series, ...(other ? [other] : [])].map((entry) => (
+        <ul
+          className={cn(
+            'flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground',
+            legend.length < 2 && 'hidden',
+          )}
+        >
+          {legend.map((entry) => (
             <li key={entry.key} className="flex items-center gap-1.5">
               <span
                 aria-hidden

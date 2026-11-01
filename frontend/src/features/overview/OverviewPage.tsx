@@ -37,8 +37,10 @@ import {
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { PlatformOverview } from './PlatformOverview'
 
-// H18IALMOND-12, -14, -54: usage and spending are shown on the dashboard.
+// H18IALMOND-12, -14, -54: your usage and, for team leads, the usage of the
+// teams they lead, filtered; admins see every team instead (H18IALMOND-26).
 // GET /stats provides the personal summary while request rows provide
 // filtered breakdowns by model, team, project, and member.
 export function OverviewPage() {
@@ -259,6 +261,8 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
+      {user.role === 'admin' && <PlatformOverview matches={matches} />}
+
       <div>
         <h2 className="text-lg font-semibold">
           Your Usage & Spending
@@ -355,16 +359,14 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
-      {canViewTeamUsage && (
+      {user.role === 'team_lead' && (
         <>
           <div>
             <h2 className="text-lg font-semibold">
               Team Usage & Spending
             </h2>
             <p className="text-sm text-muted-foreground">
-              {user.role === 'admin'
-                ? 'Usage and spending in every team.'
-                : 'Usage and spending in the teams you lead.'}
+              Usage and spending in the teams you lead.
             </p>
           </div>
 

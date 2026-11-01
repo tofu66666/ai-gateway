@@ -72,6 +72,22 @@ export function getTeamRequests(teamId: string) {
   return apiFetch<RequestRow[]>(`/team/${encodeURIComponent(teamId)}/requests`)
 }
 
+// A team with this month's spend and its budget state (H18IALMOND-19).
+export type TeamBudget = Team & {
+  owner_id: string
+  budget_per_month: number | null
+  warning_threshold: number
+  spend_this_month: number
+  // Spend over budget; null without a budget, or with a budget of 0.
+  usage_ratio: number | null
+  warning: boolean
+  blocked: boolean
+}
+
+export function getTeamBudget(teamId: string) {
+  return apiFetch<TeamBudget>(`/team/${encodeURIComponent(teamId)}`)
+}
+
 export type TeamUsage = {
   team: Team
   members: TeamMember[]

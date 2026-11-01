@@ -8,13 +8,22 @@ from fastapi.testclient import TestClient
 
 from app import dependencies
 from app.main import app
-from app.routers import guardrail_settings
+from app.routers import guardrail_settings, project
 
 client = TestClient(app)
 AUTH = {"Authorization": "Bearer good-token"}
 PROJECT_ID = "33333333-3333-3333-3333-333333333333"
 URL = f"/projects/{PROJECT_ID}/guardrails"
-ROW = {"id": PROJECT_ID, "blocked_patterns": ["secret"], "max_tokens_cap": 500}
+ROW = {
+    "id": PROJECT_ID,
+    "team_id": "22222222-2222-2222-2222-222222222222",
+    "name": "Support bot",
+    "model_ids": ["44444444-4444-4444-4444-444444444444"],
+    "budget_per_month": 100.0,
+    "warning_threshold": 0.8,
+    "blocked_patterns": ["secret"],
+    "max_tokens_cap": 500,
+}
 EXPECTED = {"project_id": PROJECT_ID, "blocked_patterns": ["secret"], "max_tokens_cap": 500}
 
 
@@ -35,13 +44,18 @@ def db(monkeypatch):
     fake = MagicMock()
     select = fake.table.return_value.select.return_value.eq.return_value.limit.return_value
     select.execute.return_value.data = [ROW]
-    fake.rpc.return_value.execute.return_value.data = [ROW]
+    fake.table.return_value.update.return_value.eq.return_value.execute.return_value.data = [ROW]
     monkeypatch.setattr(guardrail_settings, "supabase", fake)
+    monkeypatch.setattr(project, "supabase", fake)
     return fake
 
 
 def put(body):
     return client.put(URL, json=body, headers=AUTH)
+
+
+def saved_changes(db):
+    return db.table.return_value.update.call_args.args[0]
 
 
 # GET
@@ -76,34 +90,51 @@ def test_get_database_error_hidden(role, db):
 
 
 # PUT
-def test_put_calls_audited_function(role, db):
+def test_put_saves_settings_and_audits_project_state(role, db):
     r = put({"blocked_patterns": [" secret ", "SECRET", "launch codes"], "max_tokens_cap": 500})
 
     assert r.status_code == 200
     assert r.json() == EXPECTED
-    db.rpc.assert_called_once_with(
-        "set_project_guardrails",
+    assert saved_changes(db) == {
+        "blocked_patterns": ["secret", "launch codes"],
+        "max_tokens_cap": 500,
+    }
+    db.table.assert_any_call("audits")
+    db.table.return_value.insert.assert_called_once_with(
         {
-            "p_project_id": PROJECT_ID,
-            "p_actor_id": "admin-1",
-            "p_blocked_patterns": ["secret", "launch codes"],
-            "p_max_tokens_cap": 500,
-        },
+            "action": "project_modify",
+            "user_id": "admin-1",
+            "target_id": PROJECT_ID,
+            "details": {
+                "name": "Support bot",
+                "team_id": ROW["team_id"],
+                "model_ids": ROW["model_ids"],
+                "budget_per_month": 100.0,
+                "warning_threshold": 0.8,
+                "blocked_patterns": ["secret"],
+                "max_tokens_cap": 500,
+            },
+        }
     )
 
 
 def test_put_empty_body_clears_guardrails(role, db):
     assert put({}).status_code == 200
-    args = db.rpc.call_args.args[1]
-    assert args["p_blocked_patterns"] == []
-    assert args["p_max_tokens_cap"] is None
+    assert saved_changes(db) == {"blocked_patterns": [], "max_tokens_cap": None}
+
+
+def test_put_audit_failure_keeps_the_saved_settings(role, db):
+    db.table.return_value.insert.side_effect = RuntimeError("audit down")
+    r = put({"max_tokens_cap": 500})
+    assert r.status_code == 200
+    assert r.json() == EXPECTED
 
 
 @pytest.mark.parametrize("non_admin", ["team_lead", "user"])
 def test_put_admin_only(role, db, non_admin):
     role["role"] = non_admin
     assert put({"max_tokens_cap": 10}).status_code == 403
-    db.rpc.assert_not_called()
+    db.table.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -121,16 +152,17 @@ def test_put_admin_only(role, db, non_admin):
 )
 def test_put_rejects_bad_settings(role, db, body):
     assert put(body).status_code == 422
-    db.rpc.assert_not_called()
+    db.table.assert_not_called()
 
 
 def test_put_unknown_project(role, db):
-    db.rpc.return_value.execute.return_value.data = []
+    db.table.return_value.update.return_value.eq.return_value.execute.return_value.data = []
     assert put({"max_tokens_cap": 10}).status_code == 404
+    db.table.return_value.insert.assert_not_called()
 
 
 def test_put_database_error_hidden(role, db):
-    db.rpc.side_effect = RuntimeError("connection string with secrets")
+    db.table.return_value.update.side_effect = RuntimeError("connection string with secrets")
     r = put({"max_tokens_cap": 10})
     assert r.status_code == 500
     assert "secrets" not in r.text

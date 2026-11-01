@@ -58,8 +58,14 @@ export function RequestsPage() {
   const providerOf = new Map(
     models.data?.map((model: ProviderModel) => [model.id, model.provider]),
   )
-  const keyOf = (keyId: string | null | undefined) =>
-    keyId ? `${prefixOf.get(keyId) ?? keyId.slice(0, 8)}...` : '—'
+  // A key's prefix, once GET /api_keys has answered (it can take seconds);
+  // a key the list does not have shows the start of its id instead.
+  const keyOf = (keyId: string | null | undefined) => {
+    if (!keyId) return '—'
+    const prefix = prefixOf.get(keyId)
+    if (prefix) return `${prefix}...`
+    return keys.isPending ? '…' : `${keyId.slice(0, 8)}...`
+  }
 
   // The filters live in the URL, so a filtered view can be shared.
   const filters = Object.fromEntries(

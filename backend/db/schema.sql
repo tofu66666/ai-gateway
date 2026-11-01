@@ -165,35 +165,7 @@ begin
 end;
 $$;
 
--- Replace a project's guardrail settings and audit it in one transaction.
--- Returns no row if the project is missing.
-create or replace function set_project_guardrails(
-  p_project_id uuid, p_actor_id uuid, p_blocked_patterns text[], p_max_tokens_cap integer
-)
-returns setof projects
-language plpgsql
-as $$
-declare
-  updated projects;
-begin
-  update projects
-  set blocked_patterns = p_blocked_patterns, max_tokens_cap = p_max_tokens_cap
-  where id = p_project_id
-  returning * into updated;
-  if not found then
-    return;
-  end if;
-
-  insert into audits (user_id, action, target_id, details)
-  values (p_actor_id, 'project_guardrails_modify', p_project_id,
-          jsonb_build_object('blocked_patterns', p_blocked_patterns,
-                             'max_tokens_cap', p_max_tokens_cap));
-  return next updated;
-end;
-$$;
-
 -- Only the backend (service role) may call these; Supabase exposes functions
 -- to the public anon key otherwise.
 revoke execute on function revoke_virtual_key(uuid, uuid) from public, anon, authenticated;
 revoke execute on function rotate_virtual_key(uuid, uuid, text, text) from public, anon, authenticated;
-revoke execute on function set_project_guardrails(uuid, uuid, text[], integer) from public, anon, authenticated;

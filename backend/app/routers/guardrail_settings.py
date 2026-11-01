@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, StrictInt, StringConstraints
 
 from app.dependencies import CurrentUser, get_current_user
 from app.routers.db import supabase
+from app.routers.project import project_audit_details, update_project
 
 router = APIRouter(tags=["guardrails"])
 
@@ -83,30 +84,37 @@ def put_guardrails(
     response: Response,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Replace a project's guardrails; the change is audited in the same transaction."""
+    """Replace a project's guardrails and audit the project's new state."""
     if current_user.role != "admin":
         response.status_code = status.HTTP_403_FORBIDDEN
         return FORBIDDEN
 
     try:
-        rows = (
-            supabase.rpc(
-                "set_project_guardrails",
-                {
-                    "p_project_id": str(project_id),
-                    "p_actor_id": current_user.id,
-                    "p_blocked_patterns": unique_phrases(payload.blocked_patterns),
-                    "p_max_tokens_cap": payload.max_tokens_cap,
-                },
-            )
-            .execute()
-            .data
+        updated_project = update_project(
+            project_id,
+            {
+                "blocked_patterns": unique_phrases(payload.blocked_patterns),
+                "max_tokens_cap": payload.max_tokens_cap,
+            },
         )
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to update guardrails"}
 
-    if not rows:
+    if updated_project is None:
         response.status_code = status.HTTP_404_NOT_FOUND
         return {"message": "Project not found"}
-    return guardrails_body(rows[0])
+
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "project_modify",
+                "user_id": current_user.id,
+                "target_id": str(project_id),
+                "details": project_audit_details(updated_project),
+            }
+        ).execute()
+    except Exception:
+        pass
+
+    return guardrails_body(updated_project)

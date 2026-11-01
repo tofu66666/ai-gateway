@@ -198,6 +198,19 @@ def update_project(project_id: UUID, changes: dict) -> dict | None:
         return None
 
 
+def project_audit_details(project: dict) -> dict:
+    """Return the project state recorded by every project audit row."""
+    return {
+        "name": project.get("name"),
+        "team_id": str(project.get("team_id")),
+        "model_ids": [str(model_id) for model_id in (project.get("model_ids") or [])],
+        "budget_per_month": project.get("budget_per_month"),
+        "warning_threshold": project.get("warning_threshold"),
+        "blocked_patterns": project.get("blocked_patterns") or [],
+        "max_tokens_cap": project.get("max_tokens_cap"),
+    }
+
+
 @router.get("/projects", status_code=status.HTTP_200_OK)
 def list_projects(
     response: Response,
@@ -287,16 +300,7 @@ def create_project(
                 "action": "project_create",
                 "user_id": user_id,
                 "target_id": str(created_project["id"]),
-                "details": {
-                    "name": created_project.get("name"),
-                    "team_id": str(created_project.get("team_id")),
-                    "model_ids": [
-                        str(model_id)
-                        for model_id in (created_project.get("model_ids") or [])
-                    ],
-                    "budget_per_month": created_project.get("budget_per_month"),
-                    "warning_threshold": created_project.get("warning_threshold", 0.8),
-                },
+                "details": project_audit_details(created_project),
             }
         ).execute()
     except Exception:
@@ -361,26 +365,7 @@ def patch_project(
                 "action": "project_modify",
                 "user_id": current_user.id,
                 "target_id": str(project_id),
-                "details": {
-                    "name": updated_project.get("name", project.get("name")),
-                    "team_id": str(
-                        updated_project.get("team_id", project.get("team_id"))
-                    ),
-                    "model_ids": [
-                        str(model_id)
-                        for model_id in (
-                            updated_project.get("model_ids")
-                            or project.get("model_ids")
-                            or []
-                        )
-                    ],
-                    "budget_per_month": updated_project.get(
-                        "budget_per_month", project.get("budget_per_month")
-                    ),
-                    "warning_threshold": updated_project.get(
-                        "warning_threshold", project.get("warning_threshold")
-                    ),
-                },
+                "details": project_audit_details({**project, **updated_project}),
             }
         ).execute()
     except Exception:

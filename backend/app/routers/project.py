@@ -84,11 +84,7 @@ def get_team_by_id(team_id: UUID) -> dict | None:
 def get_accessible_team_ids(user_id: str) -> set[str]:
     """Return IDs of teams that the user owns or belongs to."""
     owned_teams = (
-        supabase.table("teams")
-        .select("id")
-        .eq("owner_id", user_id)
-        .execute()
-        .data
+        supabase.table("teams").select("id").eq("owner_id", user_id).execute().data
         or []
     )
     team_memberships = (
@@ -100,11 +96,7 @@ def get_accessible_team_ids(user_id: str) -> set[str]:
         or []
     )
 
-    return {
-        str(team["id"])
-        for team in owned_teams
-        if team.get("id") is not None
-    } | {
+    return {str(team["id"]) for team in owned_teams if team.get("id") is not None} | {
         str(membership["team_id"])
         for membership in team_memberships
         if membership.get("team_id") is not None
@@ -197,10 +189,7 @@ def insert_project(project_data: dict) -> dict | None:
 def update_project(project_id: UUID, changes: dict) -> dict | None:
     """Update one project and return the updated database row."""
     response = (
-        supabase.table("projects")
-        .update(changes)
-        .eq("id", str(project_id))
-        .execute()
+        supabase.table("projects").update(changes).eq("id", str(project_id)).execute()
     )
     rows = response.data or []
     if rows:
@@ -265,7 +254,9 @@ def create_project(
 
     if role != "admin" and user_id != str(team["owner_id"]):
         response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Forbidden: only the team owner or an admin can create projects"}
+        return {
+            "message": "Forbidden: only the team owner or an admin can create projects"
+        }
 
     try:
         model_rows = get_model_rows(payload.model_ids)
@@ -289,6 +280,27 @@ def create_project(
     if created_project is None:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Project creation did not return a project"}
+
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "project_create",
+                "user_id": user_id,
+                "target_id": str(created_project["id"]),
+                "details": {
+                    "name": created_project.get("name"),
+                    "team_id": str(created_project.get("team_id")),
+                    "model_ids": [
+                        str(model_id)
+                        for model_id in (created_project.get("model_ids") or [])
+                    ],
+                    "budget_per_month": created_project.get("budget_per_month"),
+                    "warning_threshold": created_project.get("warning_threshold", 0.8),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
     return created_project
 
@@ -342,5 +354,36 @@ def patch_project(
     if updated_project is None:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Project update did not return a project"}
+
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "project_modify",
+                "user_id": current_user.id,
+                "target_id": str(project_id),
+                "details": {
+                    "name": updated_project.get("name", project.get("name")),
+                    "team_id": str(
+                        updated_project.get("team_id", project.get("team_id"))
+                    ),
+                    "model_ids": [
+                        str(model_id)
+                        for model_id in (
+                            updated_project.get("model_ids")
+                            or project.get("model_ids")
+                            or []
+                        )
+                    ],
+                    "budget_per_month": updated_project.get(
+                        "budget_per_month", project.get("budget_per_month")
+                    ),
+                    "warning_threshold": updated_project.get(
+                        "warning_threshold", project.get("warning_threshold")
+                    ),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
     return with_budget_status(updated_project)

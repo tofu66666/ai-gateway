@@ -12,7 +12,7 @@ target_id: old key id
 
 action: team_add_user
 target_id: team_id
-details: {user_id}
+details: {user_id, can_create_key}
 
 action: team_remove_user
 target_id: team_id
@@ -35,7 +35,7 @@ action: model_create
 target_id: model_id
 details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt}
 
-action: model_modify
+action: model_modify (no endpoint yet)
 target_id: model_id
 details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt}
 (if model is null then model has been deleted)
@@ -58,3 +58,7 @@ endpoints:
 
 GET /audit_actions
 GET /audit_logs?action=x&user_email=x&start=x&end=x
+
+Notes:
+- `start` and `end` are Unix epoch timestamps in seconds.
+- Example: `start=1725000000&end=1728000000`

@@ -53,6 +53,29 @@ def test_build_record_success():
         "latency": 123,
     }
 
+
+def test_saved_cost_stays_fixed_after_model_price_update():
+    usage_payload = usage(1000, 500)
+    old_model = {
+        "id": "m1",
+        "price_per_1m_input": 0.10,
+        "price_per_1m_output": 0.40,
+    }
+    new_model = {
+        "id": "m1",
+        "price_per_1m_input": 0.50,
+        "price_per_1m_output": 2.00,
+    }
+
+    saved_before_update = build(usage_payload, model=old_model)
+    original_cost = saved_before_update["cost"]
+    saved_after_update = build(usage_payload, model=new_model)
+
+    assert saved_before_update["cost"] == pytest.approx(0.0003)
+    assert saved_after_update["cost"] == pytest.approx(0.0015)
+    assert saved_before_update["cost"] == original_cost
+
+
 # If the status_code > 400 (failed comunication): no tokens, no cost
 def test_build_record_failed():
     record = build(usage(1000, 500), status_code=429)

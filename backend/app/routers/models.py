@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,6 +39,13 @@ class ModelCreateRequest(BaseModel):
     price_per_1m_output: ModelPrice
     data_processing_country: RequiredText | None = None
     data_processing_state: RequiredText | None = None
+
+
+class ModelPriceUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    price_per_1m_input: ModelPrice
+    price_per_1m_output: ModelPrice
 
 
 def get_model_rows(include_provider_details: bool) -> list[dict]:
@@ -109,6 +117,18 @@ def insert_model(model_data: dict) -> dict | None:
         supabase.table("models")
         .insert(model_data)
         .select(MODEL_WRITE_COLUMNS)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def update_model_price(model_id: UUID, price_data: dict) -> dict | None:
+    """Update one model's prices and return the updated row."""
+    result = (
+        supabase.table("models")
+        .update(price_data)
+        .eq("id", str(model_id))
         .execute()
     )
     rows = result.data or []
@@ -196,3 +216,37 @@ def create_model(
         )
 
     return created_model
+
+
+@router.patch("/models/{model_id}/price", status_code=status.HTTP_200_OK)
+def patch_model_price(
+    model_id: UUID,
+    payload: ModelPriceUpdateRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Update model input and output prices. Only administrators may do this."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can update model prices",
+        )
+
+    price_data = {
+        "price_per_1m_input": str(payload.price_per_1m_input),
+        "price_per_1m_output": str(payload.price_per_1m_output),
+    }
+    try:
+        updated_model = update_model_price(model_id, price_data)
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update model prices",
+        ) from error
+
+    if updated_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model not found",
+        )
+
+    return updated_model

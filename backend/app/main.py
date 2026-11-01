@@ -11,6 +11,7 @@ from app.routers import (
     gateway,
     request_history,
     stats,
+    audit,
 )
 
 app = FastAPI(title="P127 AI Gateway")
@@ -25,3 +26,4 @@ app.include_router(virtual_key.router)
 app.include_router(gateway.router)
 app.include_router(request_history.router)
 app.include_router(stats.router)
+app.include_router(audit.router)

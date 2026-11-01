@@ -246,6 +246,44 @@ def test_team_lead_updates_project_budget(current_user, monkeypatch):
     )
 
 
+def test_project_update_audits_the_full_project_state(current_user, monkeypatch):
+    current_user["role"] = "team_lead"
+    updated = {
+        **PROJECT_ROW,
+        "budget_per_month": 80,
+        "blocked_patterns": ["secret"],
+        "max_tokens_cap": 500,
+    }
+    set_patch_project(monkeypatch, updated=updated)
+    fake_supabase = MagicMock()
+    monkeypatch.setattr(project, "supabase", fake_supabase)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}",
+        headers=AUTH,
+        json={"budget_per_month": 80},
+    )
+
+    assert response.status_code == 200
+    fake_supabase.table.assert_called_once_with("audits")
+    fake_supabase.table.return_value.insert.assert_called_once_with(
+        {
+            "action": "project_modify",
+            "user_id": "user-1",
+            "target_id": PROJECT_ID,
+            "details": {
+                "name": "Alpha Project",
+                "team_id": TEAM_ID,
+                "model_ids": [],
+                "budget_per_month": 80,
+                "warning_threshold": 0.8,
+                "blocked_patterns": ["secret"],
+                "max_tokens_cap": 500,
+            },
+        }
+    )
+
+
 def test_team_lead_removes_project_budget(current_user, monkeypatch):
     current_user["role"] = "team_lead"
     update = set_patch_project(

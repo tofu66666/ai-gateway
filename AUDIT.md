@@ -42,17 +42,13 @@ details: {provider, model, price_per_1m_input, price_per_1m_output, data_process
 
 action: project_create
 target_id: project id
-details: {name, team_id, model_ids, budget_per_month, warning_threshold}
+details: {name, team_id, model_ids, budget_per_month, warning_threshold, blocked_patterns, max_tokens_cap}
 
 action: project_modify
 target_id: project id
-details: {name, team_id, model_ids, budget_per_month, warning_threshold}
-(if team_id is null then the project has been deleted)
-
-action: project_guardrails_modify
-target_id: project id
-details: {blocked_patterns, max_tokens_cap}
-(written by set_project_guardrails; max_tokens_cap null means no cap)
+details: {name, team_id, model_ids, budget_per_month, warning_threshold, blocked_patterns, max_tokens_cap}
+(written for any project change, including guardrails; details is the project's new state)
+(if team_id is null then the project has been deleted; max_tokens_cap null means no cap)
 
 endpoints:
 

@@ -363,7 +363,9 @@ def patch_project(
                 "target_id": str(project_id),
                 "details": {
                     "name": updated_project.get("name", project.get("name")),
-                    "team_id": str(updated_project.get("team_id", project.get("team_id"))),
+                    "team_id": str(
+                        updated_project.get("team_id", project.get("team_id"))
+                    ),
                     "model_ids": [
                         str(model_id)
                         for model_id in (

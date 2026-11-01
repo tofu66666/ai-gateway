@@ -167,18 +167,6 @@ def create_team(
     try:
         supabase.table("audits").insert(
             {
-                "action": "team_add_user",
-                "user_id": user_id,
-                "target_id": team_id,
-                "details": {"user_id": owner_id},
-            }
-        ).execute()
-    except Exception:
-        pass
-
-    try:
-        supabase.table("audits").insert(
-            {
                 "action": "team_create",
                 "user_id": user_id,
                 "target_id": team_id,
@@ -188,6 +176,18 @@ def create_team(
                     "budget_per_month": payload.budget_per_month,
                     "warning_threshold": 0.8,
                 },
+            }
+        ).execute()
+    except Exception:
+        pass
+
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "team_add_user",
+                "user_id": user_id,
+                "target_id": team_id,
+                "details": {"user_id": owner_id},
             }
         ).execute()
     except Exception:

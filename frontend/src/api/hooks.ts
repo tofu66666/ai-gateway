@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getKeys } from './keys'
 import { getModels, getProjects } from './projects'
 import { getRequests } from './requests'
+import { getStats } from './stats'
 import { getTeamMembers, getTeams, getTeamUsage, type Team } from './teams'
 
 // Invalidate a key after changing what it lists, so every page refreshes.
@@ -13,6 +14,12 @@ export const queryKeys = {
   models: ['models'],
   keys: ['keys'],
   requests: ['requests'],
+  stats: (resourceId: string, start?: number, end?: number) => [
+    'stats',
+    resourceId,
+    start,
+    end,
+  ],
   teamUsage: (teamIds: string[]) => ['team-usage', ...teamIds],
 }
 
@@ -44,6 +51,18 @@ export function useKeys() {
 
 export function useRequests() {
   return useQuery({ queryKey: queryKeys.requests, queryFn: getRequests })
+}
+
+export function useStats(
+  resourceId: string | undefined,
+  start?: number,
+  end?: number,
+) {
+  return useQuery({
+    queryKey: queryKeys.stats(resourceId ?? '', start, end),
+    queryFn: () => getStats(resourceId!, start, end),
+    enabled: resourceId !== undefined,
+  })
 }
 
 // Waits for the team list; pass no teams to skip it, as for plain users.

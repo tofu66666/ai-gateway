@@ -68,12 +68,6 @@ alter table projects
   add column if not exists warning_threshold numeric(5,4) not null default 0.8
     check (warning_threshold > 0 and warning_threshold <= 1);
 
-alter table projects
-  add column if not exists blocked_patterns text[] not null default '{}';
-
-alter table projects
-  add column if not exists max_tokens_cap integer check (max_tokens_cap > 0);
-
 create table if not exists virtual_keys (
   id          uuid primary key default gen_random_uuid(),
   project_id  uuid not null references projects(id),
@@ -87,9 +81,6 @@ create table if not exists virtual_keys (
   -- The project models this key may use. Empty means all of them.
   model_ids   uuid[] not null default '{}'
 );
-
-alter table virtual_keys
-  add column if not exists model_ids uuid[] not null default '{}';
 
 create table if not exists requests (
   id                  uuid primary key default gen_random_uuid(),

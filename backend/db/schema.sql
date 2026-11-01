@@ -23,11 +23,6 @@ create table if not exists teams (
   created_at         timestamptz not null default now()
 );
 
--- CREATE TABLE IF NOT EXISTS does not add columns to an existing deployment.
-alter table teams
-  add column if not exists warning_threshold numeric(5,4) not null default 0.8
-    check (warning_threshold > 0 and warning_threshold <= 1);
-
 create table if not exists users (
   id          uuid primary key references auth.users(id),
   role        text not null check (role in ('team_lead', 'user', 'admin')),
@@ -64,16 +59,6 @@ create table if not exists projects (
   created_at         timestamptz not null default now()
 );
 
-alter table projects
-  add column if not exists warning_threshold numeric(5,4) not null default 0.8
-    check (warning_threshold > 0 and warning_threshold <= 1);
-
-alter table projects
-  add column if not exists blocked_patterns text[] not null default '{}';
-
-alter table projects
-  add column if not exists max_tokens_cap integer check (max_tokens_cap > 0);
-
 create table if not exists virtual_keys (
   id          uuid primary key default gen_random_uuid(),
   project_id  uuid not null references projects(id),
@@ -87,9 +72,6 @@ create table if not exists virtual_keys (
   -- The project models this key may use. Empty means all of them.
   model_ids   uuid[] not null default '{}'
 );
-
-alter table virtual_keys
-  add column if not exists model_ids uuid[] not null default '{}';
 
 create table if not exists requests (
   id                  uuid primary key default gen_random_uuid(),

@@ -186,7 +186,9 @@ def create_api_key(
     try:
         team = get_project_team(payload.project_id)
         allowed = team is not None and can_create_key(user.id, team)
-        bad_models = allowed and has_models_outside_project(payload.project_id, model_ids)
+        bad_models = allowed and has_models_outside_project(
+            payload.project_id, model_ids
+        )
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to look up project"}
@@ -229,6 +231,10 @@ def create_api_key(
     if created_key is None:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Key creation did not return a key"}
+
+    supabase.table("audits").insert(
+        {"action": "create_api_key", "user_id": user.id, "target_id": created_key["id"]}
+    ).execute()
 
     # The raw key is a secret shown once, so ask clients and proxies not to cache it.
     response.headers["Cache-Control"] = "no-store"
@@ -285,7 +291,11 @@ def revoke_api_key(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "Key is already revoked"}
 
-    return {"id": revoked["id"], "status": "revoked", "revoked_at": revoked["revoked_at"]}
+    return {
+        "id": revoked["id"],
+        "status": "revoked",
+        "revoked_at": revoked["revoked_at"],
+    }
 
 
 @router.post("/rotate_api_key", status_code=status.HTTP_201_CREATED)
@@ -325,7 +335,9 @@ def rotate_api_key(
 
     if key["revoked_at"] or is_expired(key):
         response.status_code = status.HTTP_400_BAD_REQUEST
-        return {"message": "Revoked or expired keys cannot be rotated; create a new key instead"}
+        return {
+            "message": "Revoked or expired keys cannot be rotated; create a new key instead"
+        }
 
     raw_key = generate_key()
     try:
@@ -337,7 +349,9 @@ def rotate_api_key(
     # Another request revoked it, or it expired, between our check and the swap.
     if new_key is None:
         response.status_code = status.HTTP_400_BAD_REQUEST
-        return {"message": "Revoked or expired keys cannot be rotated; create a new key instead"}
+        return {
+            "message": "Revoked or expired keys cannot be rotated; create a new key instead"
+        }
 
     response.headers["Cache-Control"] = "no-store"
     return {
@@ -375,7 +389,9 @@ def get_member_team_ids(user_id: str) -> set[str]:
     return {row["team_id"] for row in rows}
 
 
-def get_project_ids(project_id: UUID | None = None, team_ids: set[str] | None = None) -> dict:
+def get_project_ids(
+    project_id: UUID | None = None, team_ids: set[str] | None = None
+) -> dict:
     """Map project ID -> team ID for one project, the projects of some teams, or both."""
     query = supabase.table("projects").select("id, team_id")
     if project_id is not None:
@@ -401,18 +417,26 @@ def get_keys(conditions: list[str] | None) -> list[dict]:
 
 def get_model_aliases(keys: list[dict]) -> dict:
     """Map model ID -> alias for the models these keys are limited to."""
-    model_ids = {str(model_id) for key in keys for model_id in key.get("model_ids") or []}
+    model_ids = {
+        str(model_id) for key in keys for model_id in key.get("model_ids") or []
+    }
     if not model_ids:
         return {}
     rows = (
-        supabase.table("models").select("id, alias").in_("id", sorted(model_ids)).execute().data
+        supabase.table("models")
+        .select("id, alias")
+        .in_("id", sorted(model_ids))
+        .execute()
+        .data
     )
     return {str(row["id"]): row["alias"] for row in rows}
 
 
 def get_user_emails() -> dict:
     """Map user ID -> email from Supabase Auth."""
-    return {user.id: user.email for user in supabase.auth.admin.list_users(per_page=1000)}
+    return {
+        user.id: user.email for user in supabase.auth.admin.list_users(per_page=1000)
+    }
 
 
 def in_filter(column: str, ids) -> str:
@@ -427,7 +451,9 @@ def scoped_key_conditions(
     the teams they lead. wanted_projects (None = no filter) narrows both.
     """
     conditions = []
-    led_projects = set(get_project_ids(team_ids=led_team_ids)) if led_team_ids else set()
+    led_projects = (
+        set(get_project_ids(team_ids=led_team_ids)) if led_team_ids else set()
+    )
     if wanted_projects is not None:
         led_projects &= wanted_projects
     if led_projects:
@@ -470,7 +496,8 @@ def listed_key(key: dict, key_status: str, emails: dict, aliases: dict) -> dict:
     """A key as GET /api_keys shows it, never with its hash."""
     project = key.get("projects") or {}
     allowed_models = [
-        aliases.get(str(model_id), "Unknown model") for model_id in key.get("model_ids") or []
+        aliases.get(str(model_id), "Unknown model")
+        for model_id in key.get("model_ids") or []
     ]
     return {
         "id": key["id"],
@@ -495,7 +522,9 @@ def list_api_keys(
     response: Response,
     project_id: UUID | None = None,
     team_id: UUID | None = None,
-    status_filter: Literal["active", "revoked", "expired"] | None = Query(None, alias="status"),
+    status_filter: Literal["active", "revoked", "expired"] | None = Query(
+        None, alias="status"
+    ),
     user: CurrentUser = Depends(get_current_user),
 ):
     """

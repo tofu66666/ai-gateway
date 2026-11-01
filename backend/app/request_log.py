@@ -1,6 +1,6 @@
 # H18IALMOND 10-request logging
 # H18IALMOND 17-request_id and key_id
-
+# H18IALMOND 21-streaming (introduce TTFT, request_text, response_text)
 import logging
 from app.routers.db import supabase
 from app.cost import calculate_cost
@@ -32,6 +32,9 @@ def build_record(
     status_code: int,
     latency_ms: int,
     request_id: str | None=None,
+    time_to_first_token_ms: int | None=None,
+    request_text: str | None=None,
+    response_text: str | None=None,
 ) -> dict:
     # Only in case of valid response: status_code<400
     vr=status_code<400
@@ -66,6 +69,15 @@ def build_record(
     # Record the virtual key
     if key.get("key_id") is not None:
         record["key_id"]=str(key["key_id"])
+    # Time to first token (for streaming only): Only when measured
+    # Non-streaming rows are unchanged
+    if time_to_first_token_ms is not None:
+        record["time_to_first_token"]=time_to_first_token_ms
+    # The conversation text: Only when there is something to store
+    if request_text is not None:
+        record["request_text"]=request_text
+    if response_text is not None:
+        record["response_text"]=response_text
     return record 
 
 
@@ -77,8 +89,11 @@ def log_request(
     status_code: int,
     latency_ms: int,
     request_id: str | None=None,
+    time_to_first_token_ms: int | None=None,
+    request_text: str | None=None,
+    response_text: str | None=None,
 ) -> str | None:
-    # Request logging and accumlated cost caclulation
+    # Request logging and accumulated cost calculation
     req_id=None
     try:
         record=build_record(
@@ -88,6 +103,9 @@ def log_request(
             status_code=status_code,
             latency_ms=latency_ms,
             request_id=request_id,
+            time_to_first_token_ms=time_to_first_token_ms,
+            request_text=request_text,
+            response_text=response_text,
         )
         res=supabase.table("requests").insert(record).execute()
         
@@ -99,7 +117,7 @@ def log_request(
         # If there were a cost, update the spend_this_month
         cost=record["cost"]
         if cost>0:
-            # Becaus race condition, SQL function add_spend is used here
+            # Because race condition, SQL function add_spend is used here
             supabase.rpc(
                 "add_spend",
                 {"p_id": record["project_id"], "amount": cost},

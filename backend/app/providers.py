@@ -2,7 +2,7 @@
 # Standard: OpenAI wire format
 # Non-OpenAI-compatible providers: Get own translation function 
 # Keep gateway.py decoulped
-
+# H18IALMOND 21-streaming (Add class Openstream and open_stream(provider, endpoint, body))
 import httpx
 from fastapi import HTTPException
 
@@ -12,6 +12,8 @@ DEFAULT_TIMEOUT=60
 # provider name (`provider` column in the models table) -> how to call it.
 # Add a provider with an openAI-compatible API here
 # Decide later whether we create a separated PROVIDER file.
+# stream_usage: Provider reports token usage in a stream (not sure for Anthropic=false)
+# native_responses: Povider has its own /responses endpoint (Otheres are translated to /chat/complestions in gateway_logic_helper.py)
 PROVIDERS={
     "google":{
         "base_url":lambda: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -92,3 +94,39 @@ def call_prov(provider: str, endpoint:str, body: dict) -> httpx.Response:
         headers=headers,
         timeout=timeout,
     )    
+
+# For streaming
+
+class OpenStream:
+    # Open streaming response from a provider. Don't forget to close() it.
+
+    def __init__(self, client: httpx.Client, response: httpx.Response):
+        self._client=client
+        self._response=response
+    
+    @property
+    def status_code(self)->int:
+        return self._response.status_code
+
+    def iter_lines(self):
+        return self._response.iter_lines()
+
+    def read(self)->bytes:
+        # When the provider refuses before streaming
+        return self._response.read()
+
+    def close(self)->None:
+        self._response.close()
+        self._client.close()
+
+def open_stream(provider:str, endpoint:str, body: dict)-> OpenStream:
+    # Send the request and return as soon as the provider starts answering
+    url, headers, timeout=_prov_info(provider, endpoint)
+    client=httpx.Client(timeout=timeout)
+    try:
+        request=client.build_request("POST", url, json=body, headers=headers)
+        response=client.send(request, stream=True)
+    except BaseException:
+        client.close()
+        raise
+    return OpenStream(client, response)

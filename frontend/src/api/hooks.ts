@@ -2,7 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { getKeys } from './keys'
 import { getModels, getProjects } from './projects'
 import { getRequests } from './requests'
-import { getTeamMembers, getTeams, getTeamUsage, type Team } from './teams'
+import {
+  getTeamBudget,
+  getTeamMembers,
+  getTeams,
+  getTeamUsage,
+  type Team,
+} from './teams'
 
 // Invalidate a key after changing what it lists, so every page refreshes.
 export const queryKeys = {
@@ -14,6 +20,7 @@ export const queryKeys = {
   keys: ['keys'],
   requests: ['requests'],
   teamUsage: (teamIds: string[]) => ['team-usage', ...teamIds],
+  teamBudgets: (teamIds: string[]) => ['team-budgets', ...teamIds],
 }
 
 export function useTeams() {
@@ -55,6 +62,16 @@ export function useTeamUsage(
   return useQuery({
     queryKey: queryKeys.teamUsage(teams?.map((team) => team.id) ?? []),
     queryFn: () => getTeamUsage(teams ?? [], userId, isAdmin),
+    enabled: teams !== undefined,
+  })
+}
+
+// Each team's budget state, for the admin Overview (H18IALMOND-26).
+export function useTeamBudgets(teams: Team[] | undefined) {
+  return useQuery({
+    queryKey: queryKeys.teamBudgets(teams?.map((team) => team.id) ?? []),
+    queryFn: () =>
+      Promise.all((teams ?? []).map((team) => getTeamBudget(team.id))),
     enabled: teams !== undefined,
   })
 }

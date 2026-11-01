@@ -15,6 +15,11 @@ export type Project = {
   model_ids: string[]
   budget_per_month: number | null
   spend_this_month: number
+  // The budget state GET /projects adds (H18IALMOND-19).
+  warning_threshold?: number
+  usage_ratio?: number | null
+  warning?: boolean
+  blocked?: boolean
 }
 
 export type CreateProjectRequest = {

@@ -35,15 +35,11 @@ action: model_create
 target_id: model_id
 details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt}
 
-action: model_modify (no endpoint yet)
+action: model_modify
 target_id: model_id
-details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt}
+details: {provider, model, price_per_1m_input, price_per_1m_output, data_processing_country, data_processing_state, prompt, routing_strategy, deployments}
+(details is the model's new state; routing_strategy and deployments are only on deployment changes, where deployments is the full active list)
 (if model is null then model has been deleted)
-
-action: model_routing_modify
-target_id: model_id
-details: {routing_strategy, deployments}
-(written by set_model_deployments; deployments is the full active list)
 
 action: project_create
 target_id: project id

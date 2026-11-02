@@ -35,6 +35,9 @@ create table if not exists model_deployments (
   unique (model_id, name)
 );
 
+-- No policies: only the backend's secret key, which bypasses RLS, can reach this.
+alter table model_deployments enable row level security;
+
 -- Every new alias starts with one deployment, so the gateway can always route it.
 create or replace function add_default_deployment()
 returns trigger
@@ -206,52 +209,7 @@ begin
 end;
 $$;
 
--- Replace an alias's strategy and deployments and audit it in one transaction.
--- Deployments left out of the list are disabled. List order sets their position.
--- Returns the active deployments, or no row if the model is missing.
-create or replace function set_model_deployments(
-  p_model_id uuid, p_actor_id uuid, p_routing_strategy text, p_deployments jsonb
-)
-returns setof model_deployments
-language plpgsql
-as $$
-begin
-  update models
-  set routing_strategy = p_routing_strategy
-  where id = p_model_id;
-  if not found then
-    return;
-  end if;
-
-  update model_deployments set enabled = false where model_id = p_model_id;
-
-  insert into model_deployments
-    (model_id, name, provider, model, base_url, api_key_env, position, enabled)
-  select p_model_id, item->>'name', item->>'provider', item->>'model',
-         item->>'base_url', item->>'api_key_env', (ord - 1)::integer, true
-  from jsonb_array_elements(p_deployments) with ordinality as listed(item, ord)
-  on conflict (model_id, name) do update
-  set provider = excluded.provider,
-      model = excluded.model,
-      base_url = excluded.base_url,
-      api_key_env = excluded.api_key_env,
-      position = excluded.position,
-      enabled = true;
-
-  insert into audits (user_id, action, target_id, details)
-  values (p_actor_id, 'model_routing_modify', p_model_id,
-          jsonb_build_object('routing_strategy', p_routing_strategy,
-                             'deployments', p_deployments));
-
-  return query
-    select * from model_deployments
-    where model_id = p_model_id and enabled
-    order by position;
-end;
-$$;
-
 -- Only the backend (service role) may call these; Supabase exposes functions
 -- to the public anon key otherwise.
 revoke execute on function revoke_virtual_key(uuid, uuid) from public, anon, authenticated;
 revoke execute on function rotate_virtual_key(uuid, uuid, text, text) from public, anon, authenticated;
-revoke execute on function set_model_deployments(uuid, uuid, text, jsonb) from public, anon, authenticated;

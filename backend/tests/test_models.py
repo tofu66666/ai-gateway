@@ -39,6 +39,7 @@ MODEL_ROW = {
     "data_processing_state": None,
     "provider": "provider-internal",
     "model": "provider-small-2026",
+    "prompt": "Keep answers concise.",
 }
 ADMIN = CurrentUser(id="admin-id", email="admin@example.com", role="admin")
 USER = CurrentUser(id="user-id", email="user@example.com", role="user")
@@ -67,6 +68,7 @@ def test_non_admin_response_hides_provider_details(monkeypatch):
             "price_per_1m_input": "0.250000",
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
+            "has_prompt": True,
         }
     ]
 
@@ -87,9 +89,11 @@ def test_admin_response_includes_provider_details(monkeypatch):
             "price_per_1m_input": "0.250000",
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
+            "has_prompt": True,
             "provider": "provider-internal",
             "model": "provider-small-2026",
             "data_processing_state": None,
+            "prompt": "Keep answers concise.",
         }
     ]
 
@@ -218,8 +222,31 @@ def test_admin_can_create_model(monkeypatch):
             "price_per_1m_output": "1.00",
             "data_processing_country": "AU",
             "data_processing_state": "NSW",
+            "prompt": None,
         }
     )
+
+
+def test_create_payload_accepts_and_normalizes_prompt():
+    payload = model_payload(prompt="Be concise.\nUse bullet points.")
+    assert models.build_model_data(payload)["prompt"] == (
+        "Be concise.\nUse bullet points."
+    )
+
+    blank = model_payload(prompt="   ")
+    assert models.build_model_data(blank)["prompt"] is None
+
+
+def test_create_payload_rejects_oversized_prompt():
+    with pytest.raises(ValidationError):
+        model_payload(prompt="x" * (models.MAX_PROMPT_LENGTH + 1))
+
+
+def test_blank_prompt_is_reported_as_absent():
+    serialized = models.serialize_model({**MODEL_ROW, "prompt": "  "}, True)
+
+    assert serialized["has_prompt"] is False
+    assert serialized["prompt"] is None
 
 
 def test_non_admin_cannot_create_model():

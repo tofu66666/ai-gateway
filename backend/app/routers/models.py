@@ -13,13 +13,14 @@ router = APIRouter(tags=["models"])
 security = HTTPBearer()
 
 PUBLIC_MODEL_COLUMNS = (
-    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country"
+    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,prompt"
 )
 ADMIN_MODEL_COLUMNS = PUBLIC_MODEL_COLUMNS + ",provider,model,data_processing_state"
 UNKNOWN_COUNTRY = "Not specified"
+MAX_PROMPT_LENGTH = 2000
 MODEL_WRITE_COLUMNS = (
     "id,alias,provider,model,price_per_1m_input,price_per_1m_output,"
-    "data_processing_country,data_processing_state,created_at"
+    "data_processing_country,data_processing_state,prompt,created_at"
 )
 
 RequiredText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -27,6 +28,7 @@ ModelPrice = Annotated[
     Decimal,
     Field(ge=0, max_digits=12, decimal_places=6),
 ]
+ModelPrompt = Annotated[str, StringConstraints(max_length=MAX_PROMPT_LENGTH)]
 
 
 class ModelCreateRequest(BaseModel):
@@ -39,6 +41,7 @@ class ModelCreateRequest(BaseModel):
     price_per_1m_output: ModelPrice
     data_processing_country: RequiredText | None = None
     data_processing_state: RequiredText | None = None
+    prompt: ModelPrompt | None = None
 
 
 class ModelPriceUpdateRequest(BaseModel):
@@ -74,8 +77,16 @@ def format_data_processing_country(country: object) -> str:
     return country
 
 
+def normalize_prompt(prompt: str | None) -> str | None:
+    """Store empty master prompts as null without changing non-empty text."""
+    if prompt is None or not prompt.strip():
+        return None
+    return prompt
+
+
 def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
     # Convert a database row into the role-appropriate public response.
+    prompt = normalize_prompt(model_row.get("prompt"))
     serialized_model = {
         "id": model_row["id"],
         "alias": model_row["alias"],
@@ -84,6 +95,7 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
         "data_processing_country": format_data_processing_country(
             model_row.get("data_processing_country")
         ),
+        "has_prompt": prompt is not None,
     }
 
     if include_provider_details:
@@ -92,6 +104,7 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
         serialized_model["data_processing_state"] = model_row.get(
             "data_processing_state"
         )
+        serialized_model["prompt"] = prompt
 
     return serialized_model
 
@@ -106,6 +119,7 @@ def build_model_data(payload: ModelCreateRequest) -> dict:
         "price_per_1m_output": str(payload.price_per_1m_output),
         "data_processing_country": payload.data_processing_country,
         "data_processing_state": payload.data_processing_state,
+        "prompt": normalize_prompt(payload.prompt),
     }
 
 

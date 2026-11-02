@@ -36,7 +36,24 @@ export function getAuditActions() {
 }
 
 export function getAuditLogs(filters: AuditLogFilters = {}) {
-  return apiFetch<AuditLog[]>('/audit_logs', {
-    body: filters,
-  })
+  const params = new URLSearchParams()
+
+  if (filters.action) {
+    params.set('action', filters.action)
+  }
+  if (filters.user_email) {
+    params.set('user_email', filters.user_email)
+  }
+  if (filters.start !== undefined) {
+    params.set('start', String(filters.start))
+  }
+  if (filters.end !== undefined) {
+    params.set('end', String(filters.end))
+  }
+
+  const query = params.toString()
+
+  return apiFetch<AuditLog[]>(
+    `/audit_logs${query ? `?${query}` : ''}`,
+  )
 }

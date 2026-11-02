@@ -2,7 +2,8 @@ import { Navigate, Route, Routes } from 'react-router'
 import { RequireAuth } from '@/auth/RequireAuth'
 import { RequireRole } from '@/auth/RequireRole'
 import { AppShell } from '@/components/layout/AppShell'
-import { leadsAndAdmins } from '@/components/layout/nav'
+import { admins, leadsAndAdmins } from '@/components/layout/nav'
+import { AuditLogsPage } from '@/features/audit/AuditLogsPage'
 import { AuthRoute } from '@/features/auth/AuthRoute'
 import { BreakdownPage } from '@/features/breakdown/BreakdownPage'
 import { KeysPage } from '@/features/keys/KeysPage'
@@ -33,6 +34,9 @@ export function AppRoutes() {
           <Route path="models" element={<ModelsPage />} />
           <Route path="keys" element={<KeysPage />} />
           <Route path="requests" element={<RequestsPage />} />
+          <Route element={<RequireRole roles={admins} />}>
+            <Route path="audit-logs" element={<AuditLogsPage />} />
+          </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

@@ -51,6 +51,10 @@ class ModelPriceUpdateRequest(BaseModel):
     price_per_1m_output: ModelPrice
 
 
+class ModelPromptUpdateRequest(BaseModel):
+    prompt: ModelPrompt | None
+
+
 def get_model_rows(include_provider_details: bool) -> list[dict]:
     # Return the fields the current caller is allowed to receive.
     if include_provider_details:
@@ -147,6 +151,43 @@ def update_model_price(model_id: UUID, price_data: dict) -> dict | None:
     return rows[0] if rows else None
 
 
+def update_model_prompt(model_id: UUID, prompt: str | None) -> dict | None:
+    """Update one model's master prompt and return the updated row."""
+    result = (
+        supabase.table("models")
+        .update({"prompt": prompt})
+        .eq("id", str(model_id))
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def model_audit_details(model: dict) -> dict:
+    """Return the documented model state stored in an audit row."""
+    return {
+        "provider": model.get("provider"),
+        "model": model.get("model"),
+        "price_per_1m_input": model.get("price_per_1m_input"),
+        "price_per_1m_output": model.get("price_per_1m_output"),
+        "data_processing_country": model.get("data_processing_country"),
+        "data_processing_state": model.get("data_processing_state"),
+        "prompt": model.get("prompt"),
+    }
+
+
+def record_model_audit(action: str, actor_id: str, model: dict) -> None:
+    """Write one model audit row; callers decide whether failure is fatal."""
+    supabase.table("audits").insert(
+        {
+            "action": action,
+            "user_id": actor_id,
+            "target_id": str(model["id"]),
+            "details": model_audit_details(model),
+        }
+    ).execute()
+
+
 def is_duplicate_alias_error(error: Exception) -> bool:
     """Postgres uses code 23505 for a unique constraint violation."""
     return getattr(error, "code", None) == "23505"
@@ -228,22 +269,7 @@ def create_model(
         )
 
     try:
-        supabase.table("audits").insert(
-            {
-                "action": "model_create",
-                "user_id": user.id,
-                "target_id": str(created_model["id"]),
-                "details": {
-                    "provider": created_model.get("provider"),
-                    "model": created_model.get("model"),
-                    "price_per_1m_input": created_model.get("price_per_1m_input"),
-                    "price_per_1m_output": created_model.get("price_per_1m_output"),
-                    "data_processing_country": created_model.get("data_processing_country"),
-                    "data_processing_state": created_model.get("data_processing_state"),
-                    "prompt": created_model.get("prompt"),
-                },
-            }
-        ).execute()
+        record_model_audit("model_create", user.id, created_model)
     except Exception:
         pass
 
@@ -280,5 +306,43 @@ def patch_model_price(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Model not found",
         )
+
+    return updated_model
+
+
+@router.patch("/models/{model_id}/prompt", status_code=status.HTTP_200_OK)
+def patch_model_prompt(
+    model_id: UUID,
+    payload: ModelPromptUpdateRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Set or remove a model's master prompt. Only administrators may do this."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can update model prompts",
+        )
+
+    try:
+        updated_model = update_model_prompt(
+            model_id,
+            normalize_prompt(payload.prompt),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update model prompt",
+        ) from error
+
+    if updated_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model not found",
+        )
+
+    try:
+        record_model_audit("model_modify", user.id, updated_model)
+    except Exception:
+        pass
 
     return updated_model

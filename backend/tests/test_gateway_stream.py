@@ -209,3 +209,36 @@ def test_caller_hangup_is_logged_499(stream_setup):
     gc.collect()
     assert logged[-1]["status_code"] == 499
     assert stream.closed
+
+def test_stream_strips_usage_that_shares_a_chunk_with_content(stream_setup):
+    # Gemini can put the usage in the last content chunk
+    logged, sent, provide=stream_setup
+    both="data:"+json.dumps({
+        "choices":[{"delta": {"content": "hi"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+    })
+    provide(FakeStream([both, "", "data: [DONE]", ""]))
+    r=do_post()
+    assert "prompt_tokens" not in r.text # hidden from the caller
+    assert '"hi"' in r.text # The content is still there
+    assert r.text.rstrip().endswith("data: [DONE]")
+    assert logged[0]["payload"]=={"usage": {"prompt_tokens": 3, "completion_tokens": 1}} # but still priced
+    assert logged[0]["response_text"]=="hi"
+
+def test_stream_keeps_usage_in_a_content_chunk_when_caller_asked(stream_setup):
+    logged, sent, provide=stream_setup
+    both="data:"+json.dumps({
+        "choices":[{"delta": {"content": "hi"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+    })
+    provide(FakeStream([both, "", "data: [DONE]", ""]))
+    r=do_post({**BODY, "stream_options": {"include_usage": True}})
+    assert "prompt_tokens" in r.text
+
+def test_stream_provider_refuses_with_non_json_body(stream_setup):
+    logged, sent, provide=stream_setup
+    provide(FakeStream([], status=503, body=b"<html>down</html>"))
+    r=do_post()
+    assert r.status_code==503
+    assert r.json()["error"]["message"]=="Provider returned an error"
+    assert logged[0]["status_code"]==503

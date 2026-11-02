@@ -15,6 +15,7 @@ from app import load_balancer
 from app.dependencies import CurrentUser, get_current_user
 from app.providers import PROVIDERS
 from app.routers.db import supabase
+from app.routers.models import model_audit_details
 
 router = APIRouter(tags=["deployments"])
 
@@ -121,6 +122,65 @@ def get_active_deployments(model_id: str) -> list[dict]:
     return rows or []
 
 
+def deployment_audit_details(model: dict, deployments: list[dict]) -> dict:
+    """Return the model's audit state plus its routing."""
+    return {
+        **model_audit_details(model),
+        "routing_strategy": model.get("routing_strategy"),
+        "deployments": [
+            {
+                "name": deployment.get("name"),
+                "provider": deployment.get("provider"),
+                "model": deployment.get("model"),
+                "base_url": deployment.get("base_url"),
+                "api_key_env": deployment.get("api_key_env"),
+            }
+            for deployment in deployments
+        ],
+    }
+
+
+def update_model_strategy(model_id: str, strategy: str) -> dict | None:
+    """Update one model's strategy and return the updated row."""
+    rows = (
+        supabase.table("models")
+        .update({"routing_strategy": strategy})
+        .eq("id", model_id)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+def replace_deployments(model_id: str, deployments: list[DeploymentRequest]) -> None:
+    # Save the new list before disabling the rest, so a failure part way through
+    # can leave an alias with extra deployments but never with none.
+    saved = (
+        supabase.table("model_deployments")
+        .upsert(
+            [
+                {
+                    **deployment.model_dump(),
+                    "model_id": model_id,
+                    "position": position,
+                    "enabled": True,
+                }
+                for position, deployment in enumerate(deployments)
+            ],
+            on_conflict="model_id,name",
+        )
+        .execute()
+        .data
+    )
+    (
+        supabase.table("model_deployments")
+        .update({"enabled": False})
+        .eq("model_id", model_id)
+        .not_.in_("id", [row["id"] for row in saved])
+        .execute()
+    )
+
+
 @router.get("/models/{model_id}/deployments", status_code=status.HTTP_200_OK)
 def get_deployments(
     model_id: UUID,
@@ -152,30 +212,32 @@ def put_deployments(
     response: Response,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Replace an alias's deployments; the change is audited in the same transaction."""
+    """Replace an alias's deployments and audit the model's new state."""
     if current_user.role != "admin":
         response.status_code = status.HTTP_403_FORBIDDEN
         return FORBIDDEN
 
     try:
-        rows = (
-            supabase.rpc(
-                "set_model_deployments",
-                {
-                    "p_model_id": str(model_id),
-                    "p_actor_id": current_user.id,
-                    "p_routing_strategy": payload.routing_strategy,
-                    "p_deployments": [d.model_dump() for d in payload.deployments],
-                },
-            )
-            .execute()
-            .data
-        )
+        model = update_model_strategy(str(model_id), payload.routing_strategy)
+        if model is None:
+            response.status_code = status.HTTP_404_NOT_FOUND
+            return {"message": "Model not found"}
+        replace_deployments(str(model_id), payload.deployments)
+        rows = get_active_deployments(str(model_id))
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to update deployments"}
 
-    if not rows:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return {"message": "Model not found"}
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "model_modify",
+                "user_id": current_user.id,
+                "target_id": str(model_id),
+                "details": deployment_audit_details(model, rows),
+            }
+        ).execute()
+    except Exception:
+        pass
+
     return routing_body(str(model_id), payload.routing_strategy, rows)

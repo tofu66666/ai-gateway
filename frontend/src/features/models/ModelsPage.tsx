@@ -12,6 +12,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { AddModelDialog } from './AddModelDialog'
+import { hasMasterPrompt } from './masterPrompt'
+import { MasterPromptDialog } from './MasterPromptDialog'
 
 // Admins also get the provider and the provider's model name.
 type PricedModel = Model & {
@@ -89,6 +91,11 @@ export function ModelsPage() {
                 <Card key={model.id} size="sm">
                   <CardHeader>
                     <CardTitle>{model.alias}</CardTitle>
+                    {user.role === 'admin' && (
+                      <CardAction>
+                        <MasterPromptDialog model={model} />
+                      </CardAction>
+                    )}
                   </CardHeader>
 
                   <CardContent>
@@ -131,6 +138,19 @@ export function ModelsPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* H18IALMOND-56: only admins get the text itself. */}
+                    {hasMasterPrompt(model) && (
+                      <div className="mt-4">
+                        <p className="text-sm text-muted-foreground">
+                          Master prompt
+                        </p>
+                        <p className="line-clamp-3 text-sm whitespace-pre-wrap">
+                          {model.prompt ??
+                            'Set by an admin. Every chat request to this model starts with it, and it counts as input tokens.'}
+                        </p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}

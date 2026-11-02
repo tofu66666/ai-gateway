@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { hasMasterPrompt } from '@/features/models/masterPrompt'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
@@ -93,6 +94,12 @@ export function PlaygroundPage() {
                 ))}
               </SelectContent>
             </Select>
+            {model && hasMasterPrompt(model) && (
+              <p className="text-xs text-muted-foreground">
+                An admin set a master prompt for this model: it goes before your
+                prompt and counts as input tokens.
+              </p>
+            )}
             {models.isError && (
               <p className="text-sm text-destructive">{models.error.message}</p>
             )}

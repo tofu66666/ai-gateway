@@ -10,7 +10,13 @@ create table if not exists models (
   data_processing_country text,
   data_processing_state   text,
   created_at              timestamptz not null default now(),
-  prompt                  text
+  prompt                  text,
+  -- Which gateway endpoint the model can be used on (H18IALMOND-22):
+  -- chat -> /chat/completions 
+  -- embedding -> /embeddings
+  -- completion -> /completions
+  kind                    text not null default 'chat'
+                            check (kind in ('chat', 'embedding', 'completion'))
 );
 
 create table if not exists teams (

@@ -145,7 +145,7 @@ export function ModelsPage() {
                         <p className="text-sm text-muted-foreground">
                           Master prompt
                         </p>
-                        <p className="line-clamp-3 text-sm whitespace-pre-wrap">
+                        <p className="line-clamp-3 text-sm wrap-break-word whitespace-pre-wrap">
                           {model.prompt ??
                             'Set by an admin. Every chat request to this model starts with it, and it counts as input tokens.'}
                         </p>

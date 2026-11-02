@@ -58,9 +58,10 @@ export function MasterPromptDialog({ model }: { model: Model }) {
         <Button size="sm" variant="outline">
           <Pencil />
           {hasMasterPrompt(model) ? 'Edit master prompt' : 'Set master prompt'}
+          <span className="sr-only"> for {model.alias}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Master prompt for {model.alias}</DialogTitle>

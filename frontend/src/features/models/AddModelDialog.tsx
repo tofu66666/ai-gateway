@@ -65,8 +65,8 @@ export function AddModelDialog() {
       price_per_1m_input: Number(form.input),
       price_per_1m_output: Number(form.output),
       data_processing_country: form.country.trim() || null,
-      // Sent only when typed, so a model without one can still be added while
-      // the backend does not take prompts yet (H18IALMOND-57).
+      // Left out when empty, so the request is the one POST /models took
+      // before master prompts (H18IALMOND-57).
       ...(prompt ? { prompt } : {}),
     })
   }
@@ -85,7 +85,8 @@ export function AddModelDialog() {
           Add model
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      {/* Scrolls instead of running off a short screen when the prompt is long. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Add model</DialogTitle>

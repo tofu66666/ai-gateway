@@ -1,6 +1,6 @@
 # H18IALMOND-39 guardrails: stop blocked prompts and oversized requests
 # before they reach a provider. Settings live on the projects row.
-
+# H18IALMOND 22-embeddings: modified to adapt the completions and embeddings
 from app.routers.db import supabase
 
 TOKEN_FIELDS = ("max_tokens", "max_completion_tokens")
@@ -28,20 +28,28 @@ def get_project_guardrails(project_id: str) -> dict:
 
 def prompt_texts(body: dict) -> list[str]:
     # Message content is a string or a list of parts like {"type": "text", "text": ...}
+    # Completions (`prompt`) and embeddings (`input`): a string or a list of strings
     texts = []
     messages = body.get("messages")
-    if not isinstance(messages, list):
-        return texts
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        content = message.get("content")
-        if isinstance(content, str):
-            texts.append(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    texts.append(part["text"])
+    if isinstance(messages, list): # Changed if is not to if to reach the for loop below
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                texts.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        texts.append(part["text"])
+    for field in ("prompt", "input"):
+        value=body.get(field)
+        if isinstance(value, str):
+            texts.append(value)
+        elif isinstance(value, list):
+            # token id arrays are lists of numbers
+            # Only the strings are text
+            texts.extend(item for item in value if isinstance(item, str))
     return texts
 
 
@@ -77,10 +85,14 @@ def apply_max_tokens_cap(body: dict, cap: int | None) -> dict:
     return {**body, "max_tokens": cap}
 
 
-def check_request(body: dict, guardrails: dict) -> dict:
+def check_request(body: dict, guardrails: dict, endpoint: str = "chat") -> dict:
     """Return the body to send on, or raise GuardrailViolation."""
     if find_blocked_pattern(body, guardrails.get("blocked_patterns") or []):
         raise GuardrailViolation(
             "Request blocked by project policy: the prompt contains a blocked phrase"
         )
+    if endpoint == "embeddings":
+        # An embedding model does not generate text: max_tokens does not apply
+        # Also provider would reject the unknown parameter
+        return body
     return apply_max_tokens_cap(body, guardrails.get("max_tokens_cap"))

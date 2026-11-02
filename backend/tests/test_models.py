@@ -39,6 +39,7 @@ MODEL_ROW = {
     "data_processing_state": None,
     "provider": "provider-internal",
     "model": "provider-small-2026",
+    "prompt": "Keep answers concise.",
 }
 ADMIN = CurrentUser(id="admin-id", email="admin@example.com", role="admin")
 USER = CurrentUser(id="user-id", email="user@example.com", role="user")
@@ -67,6 +68,7 @@ def test_non_admin_response_hides_provider_details(monkeypatch):
             "price_per_1m_input": "0.250000",
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
+            "has_prompt": True,
         }
     ]
 
@@ -87,9 +89,11 @@ def test_admin_response_includes_provider_details(monkeypatch):
             "price_per_1m_input": "0.250000",
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
+            "has_prompt": True,
             "provider": "provider-internal",
             "model": "provider-small-2026",
             "data_processing_state": None,
+            "prompt": "Keep answers concise.",
         }
     ]
 
@@ -218,8 +222,31 @@ def test_admin_can_create_model(monkeypatch):
             "price_per_1m_output": "1.00",
             "data_processing_country": "AU",
             "data_processing_state": "NSW",
+            "prompt": None,
         }
     )
+
+
+def test_create_payload_accepts_and_normalizes_prompt():
+    payload = model_payload(prompt="Be concise.\nUse bullet points.")
+    assert models.build_model_data(payload)["prompt"] == (
+        "Be concise.\nUse bullet points."
+    )
+
+    blank = model_payload(prompt="   ")
+    assert models.build_model_data(blank)["prompt"] is None
+
+
+def test_create_payload_rejects_oversized_prompt():
+    with pytest.raises(ValidationError):
+        model_payload(prompt="x" * (models.MAX_PROMPT_LENGTH + 1))
+
+
+def test_blank_prompt_is_reported_as_absent():
+    serialized = models.serialize_model({**MODEL_ROW, "prompt": "  "}, True)
+
+    assert serialized["has_prompt"] is False
+    assert serialized["prompt"] is None
 
 
 def test_non_admin_cannot_create_model():
@@ -411,3 +438,167 @@ def test_update_model_price_returns_updated_row(monkeypatch):
     database.table.assert_called_once_with("models")
     query.update.assert_called_once_with(price_data)
     query.update.return_value.eq.assert_called_once_with("id", MODEL_ROW["id"])
+
+
+def prompt_payload(prompt="Be concise."):
+    return models.ModelPromptUpdateRequest(prompt=prompt)
+
+
+def test_prompt_update_route_requires_bearer_authentication():
+    response = TestClient(app).patch(
+        f"/models/{MODEL_ROW['id']}/prompt",
+        json={"prompt": "Be concise."},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+def test_admin_can_update_model_prompt_and_audit(monkeypatch):
+    updated = {**MODEL_ROW, "prompt": "Be accurate.\nBe concise."}
+    update = MagicMock(return_value=updated)
+    audit = MagicMock()
+    monkeypatch.setattr(models, "update_model_prompt", update)
+    monkeypatch.setattr(models, "record_model_audit", audit)
+
+    result = models.patch_model_prompt(
+        UUID(MODEL_ROW["id"]),
+        prompt_payload("Be accurate.\nBe concise."),
+        ADMIN,
+    )
+
+    assert result == updated
+    update.assert_called_once_with(
+        UUID(MODEL_ROW["id"]),
+        "Be accurate.\nBe concise.",
+    )
+    audit.assert_called_once_with("model_modify", ADMIN.id, updated)
+
+
+@pytest.mark.parametrize("prompt", [None, "", "   "])
+def test_admin_can_remove_model_prompt(monkeypatch, prompt):
+    updated = {**MODEL_ROW, "prompt": None}
+    update = MagicMock(return_value=updated)
+    monkeypatch.setattr(models, "update_model_prompt", update)
+    monkeypatch.setattr(models, "record_model_audit", MagicMock())
+
+    result = models.patch_model_prompt(
+        UUID(MODEL_ROW["id"]), prompt_payload(prompt), ADMIN
+    )
+
+    assert result["prompt"] is None
+    update.assert_called_once_with(UUID(MODEL_ROW["id"]), None)
+
+
+def test_non_admin_cannot_update_model_prompt(monkeypatch):
+    update = MagicMock()
+    monkeypatch.setattr(models, "update_model_prompt", update)
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_prompt(
+            UUID(MODEL_ROW["id"]), prompt_payload(), USER
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail == "Only administrators can update model prompts"
+    update.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {},
+        {"prompt": "x" * (models.MAX_PROMPT_LENGTH + 1)},
+        {"prompt": "Be concise.", "promt": "typo"},
+    ],
+)
+def test_prompt_update_payload_rejects_invalid_values(values):
+    with pytest.raises(ValidationError):
+        models.ModelPromptUpdateRequest(**values)
+
+
+def test_prompt_update_returns_not_found_without_audit(monkeypatch):
+    audit = MagicMock()
+    monkeypatch.setattr(models, "update_model_prompt", MagicMock(return_value=None))
+    monkeypatch.setattr(models, "record_model_audit", audit)
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_prompt(
+            UUID(MODEL_ROW["id"]), prompt_payload(), ADMIN
+        )
+
+    assert error.value.status_code == 404
+    assert error.value.detail == "Model not found"
+    audit.assert_not_called()
+
+
+def test_prompt_update_hides_database_error(monkeypatch):
+    monkeypatch.setattr(
+        models,
+        "update_model_prompt",
+        MagicMock(side_effect=RuntimeError("database password")),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        models.patch_model_prompt(
+            UUID(MODEL_ROW["id"]), prompt_payload(), ADMIN
+        )
+
+    assert error.value.status_code == 500
+    assert error.value.detail == "Failed to update model prompt"
+
+
+def test_prompt_update_succeeds_when_audit_fails(monkeypatch):
+    updated = {**MODEL_ROW, "prompt": "Be concise."}
+    monkeypatch.setattr(models, "update_model_prompt", lambda model_id, prompt: updated)
+    monkeypatch.setattr(
+        models,
+        "record_model_audit",
+        MagicMock(side_effect=RuntimeError("audit unavailable")),
+    )
+
+    result = models.patch_model_prompt(
+        UUID(MODEL_ROW["id"]), prompt_payload(), ADMIN
+    )
+
+    assert result == updated
+
+
+def test_update_model_prompt_returns_updated_row(monkeypatch):
+    updated = {**MODEL_ROW, "prompt": "Be concise."}
+    query = MagicMock()
+    query.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[updated]
+    )
+    database = MagicMock()
+    database.table.return_value = query
+    monkeypatch.setattr(models, "supabase", database)
+
+    result = models.update_model_prompt(
+        UUID(MODEL_ROW["id"]), "Be concise."
+    )
+
+    assert result == updated
+    database.table.assert_called_once_with("models")
+    query.update.assert_called_once_with({"prompt": "Be concise."})
+    query.update.return_value.eq.assert_called_once_with("id", MODEL_ROW["id"])
+
+
+def test_record_model_audit_writes_documented_state(monkeypatch):
+    query = MagicMock()
+    database = MagicMock()
+    database.table.return_value = query
+    monkeypatch.setattr(models, "supabase", database)
+
+    models.record_model_audit("model_modify", ADMIN.id, MODEL_ROW)
+
+    database.table.assert_called_once_with("audits")
+    query.insert.assert_called_once_with(
+        {
+            "action": "model_modify",
+            "user_id": ADMIN.id,
+            "target_id": MODEL_ROW["id"],
+            "details": models.model_audit_details(MODEL_ROW),
+        }
+    )
+    query.insert.return_value.execute.assert_called_once_with()

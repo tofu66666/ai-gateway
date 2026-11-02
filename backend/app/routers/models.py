@@ -13,13 +13,14 @@ router = APIRouter(tags=["models"])
 security = HTTPBearer()
 
 PUBLIC_MODEL_COLUMNS = (
-    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country"
+    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,prompt"
 )
 ADMIN_MODEL_COLUMNS = PUBLIC_MODEL_COLUMNS + ",provider,model,data_processing_state"
 UNKNOWN_COUNTRY = "Not specified"
+MAX_PROMPT_LENGTH = 2000
 MODEL_WRITE_COLUMNS = (
     "id,alias,provider,model,price_per_1m_input,price_per_1m_output,"
-    "data_processing_country,data_processing_state,created_at"
+    "data_processing_country,data_processing_state,prompt,created_at"
 )
 
 RequiredText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -27,6 +28,7 @@ ModelPrice = Annotated[
     Decimal,
     Field(ge=0, max_digits=12, decimal_places=6),
 ]
+ModelPrompt = Annotated[str, StringConstraints(max_length=MAX_PROMPT_LENGTH)]
 
 
 class ModelCreateRequest(BaseModel):
@@ -39,6 +41,7 @@ class ModelCreateRequest(BaseModel):
     price_per_1m_output: ModelPrice
     data_processing_country: RequiredText | None = None
     data_processing_state: RequiredText | None = None
+    prompt: ModelPrompt | None = None
 
 
 class ModelPriceUpdateRequest(BaseModel):
@@ -46,6 +49,12 @@ class ModelPriceUpdateRequest(BaseModel):
 
     price_per_1m_input: ModelPrice
     price_per_1m_output: ModelPrice
+
+
+class ModelPromptUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: ModelPrompt | None
 
 
 def get_model_rows(include_provider_details: bool) -> list[dict]:
@@ -74,8 +83,16 @@ def format_data_processing_country(country: object) -> str:
     return country
 
 
+def normalize_prompt(prompt: str | None) -> str | None:
+    """Store empty master prompts as null without changing non-empty text."""
+    if prompt is None or not prompt.strip():
+        return None
+    return prompt
+
+
 def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
     # Convert a database row into the role-appropriate public response.
+    prompt = normalize_prompt(model_row.get("prompt"))
     serialized_model = {
         "id": model_row["id"],
         "alias": model_row["alias"],
@@ -84,6 +101,7 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
         "data_processing_country": format_data_processing_country(
             model_row.get("data_processing_country")
         ),
+        "has_prompt": prompt is not None,
     }
 
     if include_provider_details:
@@ -92,6 +110,7 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
         serialized_model["data_processing_state"] = model_row.get(
             "data_processing_state"
         )
+        serialized_model["prompt"] = prompt
 
     return serialized_model
 
@@ -106,6 +125,7 @@ def build_model_data(payload: ModelCreateRequest) -> dict:
         "price_per_1m_output": str(payload.price_per_1m_output),
         "data_processing_country": payload.data_processing_country,
         "data_processing_state": payload.data_processing_state,
+        "prompt": normalize_prompt(payload.prompt),
     }
 
 
@@ -131,6 +151,43 @@ def update_model_price(model_id: UUID, price_data: dict) -> dict | None:
     )
     rows = result.data or []
     return rows[0] if rows else None
+
+
+def update_model_prompt(model_id: UUID, prompt: str | None) -> dict | None:
+    """Update one model's master prompt and return the updated row."""
+    result = (
+        supabase.table("models")
+        .update({"prompt": prompt})
+        .eq("id", str(model_id))
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def model_audit_details(model: dict) -> dict:
+    """Return the documented model state stored in an audit row."""
+    return {
+        "provider": model.get("provider"),
+        "model": model.get("model"),
+        "price_per_1m_input": model.get("price_per_1m_input"),
+        "price_per_1m_output": model.get("price_per_1m_output"),
+        "data_processing_country": model.get("data_processing_country"),
+        "data_processing_state": model.get("data_processing_state"),
+        "prompt": model.get("prompt"),
+    }
+
+
+def record_model_audit(action: str, actor_id: str, model: dict) -> None:
+    """Write one model audit row; callers decide whether failure is fatal."""
+    supabase.table("audits").insert(
+        {
+            "action": action,
+            "user_id": actor_id,
+            "target_id": str(model["id"]),
+            "details": model_audit_details(model),
+        }
+    ).execute()
 
 
 def is_duplicate_alias_error(error: Exception) -> bool:
@@ -214,22 +271,7 @@ def create_model(
         )
 
     try:
-        supabase.table("audits").insert(
-            {
-                "action": "model_create",
-                "user_id": user.id,
-                "target_id": str(created_model["id"]),
-                "details": {
-                    "provider": created_model.get("provider"),
-                    "model": created_model.get("model"),
-                    "price_per_1m_input": created_model.get("price_per_1m_input"),
-                    "price_per_1m_output": created_model.get("price_per_1m_output"),
-                    "data_processing_country": created_model.get("data_processing_country"),
-                    "data_processing_state": created_model.get("data_processing_state"),
-                    "prompt": created_model.get("prompt"),
-                },
-            }
-        ).execute()
+        record_model_audit("model_create", user.id, created_model)
     except Exception:
         pass
 
@@ -286,6 +328,44 @@ def patch_model_price(
                 },
             }
         ).execute()
+    except Exception:
+        pass
+
+    return updated_model
+
+
+@router.patch("/models/{model_id}/prompt", status_code=status.HTTP_200_OK)
+def patch_model_prompt(
+    model_id: UUID,
+    payload: ModelPromptUpdateRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Set or remove a model's master prompt. Only administrators may do this."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can update model prompts",
+        )
+
+    try:
+        updated_model = update_model_prompt(
+            model_id,
+            normalize_prompt(payload.prompt),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update model prompt",
+        ) from error
+
+    if updated_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model not found",
+        )
+
+    try:
+        record_model_audit("model_modify", user.id, updated_model)
     except Exception:
         pass
 

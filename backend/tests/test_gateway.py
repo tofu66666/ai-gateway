@@ -304,6 +304,28 @@ def test_real_request(monkeypatch):
     assert sent["json"]["model"]=="gemini-3.5-flash-lite" #Check if alias is replaced
     assert sent["headers"]["Authorization"] == "Bearer provider-key" # Not the virtual key
 
+
+def test_real_request_prepends_model_master_prompt(monkeypatch):
+    fake_auth(monkeypatch, model={**MODEL, "prompt": "Be accurate and concise."})
+    fake_log(monkeypatch)
+    monkeypatch.setattr(gateway.config, "GEMINI_API_KEY", "provider-key")
+    sent = {}
+
+    def fake_post(url, json, headers, timeout):
+        sent.update(json=json)
+        return httpx.Response(200, json=REPLY)
+
+    monkeypatch.setattr(gateway.httpx, "post", fake_post)
+
+    response = post()
+
+    assert response.status_code == 200
+    assert sent["json"]["messages"] == [
+        {"role": "system", "content": "Be accurate and concise."},
+        {"role": "user", "content": "hi"},
+    ]
+
+
 # Test logging
 
 # Valid call: result one row and update the project spend

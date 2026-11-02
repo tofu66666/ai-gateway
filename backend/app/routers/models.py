@@ -267,4 +267,26 @@ def patch_model_price(
             detail="Model not found",
         )
 
+    try:
+        supabase.table("audits").insert(
+            {
+                "action": "model_modify",
+                "user_id": user.id,
+                "target_id": str(updated_model["id"]),
+                "details": {
+                    "provider": updated_model.get("provider"),
+                    "model": updated_model.get("model"),
+                    "price_per_1m_input": updated_model.get("price_per_1m_input"),
+                    "price_per_1m_output": updated_model.get("price_per_1m_output"),
+                    "data_processing_country": updated_model.get(
+                        "data_processing_country"
+                    ),
+                    "data_processing_state": updated_model.get("data_processing_state"),
+                    "prompt": updated_model.get("prompt"),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
+
     return updated_model

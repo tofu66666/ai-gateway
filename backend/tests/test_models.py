@@ -218,9 +218,22 @@ def test_admin_can_create_model(monkeypatch):
             "price_per_1m_output": "1.00",
             "data_processing_country": "AU",
             "data_processing_state": "NSW",
+            "kind": "chat",
         }
     )
 
+@pytest.mark.parametrize("kind", ["chat", "embedding", "completion"])
+def test_create_model_stores_the_kind(monkeypatch, kind):
+    insert_model=MagicMock(return_value={"id":"m1"})
+    monkeypatch.setattr(models, "insert_model", insert_model)
+
+    models.create_model(model_payload(kind=kind), ADMIN)
+    
+    assert insert_model.call_args.args[0]["kind"]==kind
+
+def test_create_model_rejects_unknown_kind():
+    with pytest.raises(ValidationError):
+        model_payload(kind="image")
 
 def test_non_admin_cannot_create_model():
     with pytest.raises(HTTPException) as error:

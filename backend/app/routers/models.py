@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal 
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -19,7 +19,7 @@ ADMIN_MODEL_COLUMNS = PUBLIC_MODEL_COLUMNS + ",provider,model,data_processing_st
 UNKNOWN_COUNTRY = "Not specified"
 MODEL_WRITE_COLUMNS = (
     "id,alias,provider,model,price_per_1m_input,price_per_1m_output,"
-    "data_processing_country,data_processing_state,created_at"
+    "data_processing_country,data_processing_state,created_at,kind"
 )
 
 RequiredText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -39,6 +39,7 @@ class ModelCreateRequest(BaseModel):
     price_per_1m_output: ModelPrice
     data_processing_country: RequiredText | None = None
     data_processing_state: RequiredText | None = None
+    kind: Literal["chat", "embedding", "completion"] = "chat"
 
 
 class ModelPriceUpdateRequest(BaseModel):
@@ -106,6 +107,7 @@ def build_model_data(payload: ModelCreateRequest) -> dict:
         "price_per_1m_output": str(payload.price_per_1m_output),
         "data_processing_country": payload.data_processing_country,
         "data_processing_state": payload.data_processing_state,
+        "kind": payload.kind,
     }
 
 

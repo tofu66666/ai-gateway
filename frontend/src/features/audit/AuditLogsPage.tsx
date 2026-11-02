@@ -1,4 +1,6 @@
-import { useAuditLogs } from '@/api/hooks'
+import { useState } from 'react'
+import type { AuditLogFilters } from '@/api/audit'
+import { useAuditActions, useAuditLogs } from '@/api/hooks'
 import { ErrorState } from '@/components/layout/ErrorState'
 import {
   Card,
@@ -16,6 +18,27 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDateTime } from '@/lib/format'
+import {
+  AuditFilters,
+  type AuditFilterValues,
+} from './AuditFilters'
+
+const emptyFilters: AuditFilterValues = {
+  action: 'all',
+  userEmail: '',
+  startDate: '',
+  endDate: '',
+}
+
+function startOfDate(value: string) {
+  if (!value) return undefined
+  return Math.floor(new Date(`${value}T00:00:00`).getTime() / 1000)
+}
+
+function endOfDate(value: string) {
+  if (!value) return undefined
+  return Math.floor(new Date(`${value}T23:59:59`).getTime() / 1000)
+}
 
 function formatAction(action: string) {
   return action
@@ -41,7 +64,17 @@ function formatDetails(details: unknown) {
 }
 
 export function AuditLogsPage() {
-  const auditLogs = useAuditLogs()
+  const [filters, setFilters] = useState<AuditFilterValues>(emptyFilters)
+  const actions = useAuditActions()
+
+  const queryFilters: AuditLogFilters = {
+    action: filters.action === 'all' ? undefined : filters.action,
+    user_email: filters.userEmail.trim() || undefined,
+    start: startOfDate(filters.startDate),
+    end: endOfDate(filters.endDate),
+  }
+
+  const auditLogs = useAuditLogs(queryFilters)
   const rows = auditLogs.data ?? []
 
   return (
@@ -52,6 +85,20 @@ export function AuditLogsPage() {
           Review administrative changes across the platform.
         </p>
       </div>
+
+      <AuditFilters
+        filters={filters}
+        actions={actions.data ?? []}
+        onChange={setFilters}
+        onReset={() => setFilters(emptyFilters)}
+      />
+
+      {actions.error && (
+        <ErrorState
+          title="Couldn't load audit actions"
+          error={actions.error}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -116,7 +163,7 @@ export function AuditLogsPage() {
                   >
                     {auditLogs.isPending
                       ? 'Loading audit logs...'
-                      : 'No audit logs found.'}
+                      : 'No audit logs match these filters.'}
                   </TableCell>
                 </TableRow>
               )}

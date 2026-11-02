@@ -1,4 +1,5 @@
-// H18IALMOND-41: the request log as a CSV file.
+// CSV files for the request log (H18IALMOND-41) and the Breakdown
+// (H18IALMOND-31).
 
 // A cell that starts like a formula (=, +, -, @) gets a leading ', so a
 // spreadsheet shows it as text instead of running it; cells with commas,

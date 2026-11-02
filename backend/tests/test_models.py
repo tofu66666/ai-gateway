@@ -509,6 +509,7 @@ def test_non_admin_cannot_update_model_prompt(monkeypatch):
     [
         {},
         {"prompt": "x" * (models.MAX_PROMPT_LENGTH + 1)},
+        {"prompt": "Be concise.", "promt": "typo"},
     ],
 )
 def test_prompt_update_payload_rejects_invalid_values(values):

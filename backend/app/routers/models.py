@@ -52,6 +52,8 @@ class ModelPriceUpdateRequest(BaseModel):
 
 
 class ModelPromptUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     prompt: ModelPrompt | None
 
 

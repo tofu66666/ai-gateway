@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { formatDate } from '@/lib/format'
 
@@ -183,6 +184,7 @@ export function CreateKeyDialog({
                     />
                     {model.alias}
                     <ProcessedIn model={model} />
+                    <MasterPromptMark model={model} />
                   </Label>
                 ))}
               </fieldset>

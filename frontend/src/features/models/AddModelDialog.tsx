@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { MAX_PROMPT_LENGTH } from './masterPrompt'
+import { PromptField } from './PromptField'
 
 const empty = {
   alias: '',
@@ -24,6 +26,7 @@ const empty = {
   input: '',
   output: '',
   country: '',
+  prompt: '',
 }
 
 // H18IALMOND-53: callers ask for the alias; the provider and its model name
@@ -54,6 +57,7 @@ export function AddModelDialog() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const prompt = form.prompt.trim()
     add.mutate({
       alias: form.alias.trim(),
       provider: form.provider.trim(),
@@ -61,6 +65,9 @@ export function AddModelDialog() {
       price_per_1m_input: Number(form.input),
       price_per_1m_output: Number(form.output),
       data_processing_country: form.country.trim() || null,
+      // Sent only when typed, so a model without one can still be added while
+      // the backend does not take prompts yet (H18IALMOND-57).
+      ...(prompt ? { prompt } : {}),
     })
   }
 
@@ -136,6 +143,12 @@ export function AddModelDialog() {
             <Input {...field('country')} placeholder="Optional" />
           </div>
 
+          <PromptField
+            id="model-prompt"
+            value={form.prompt}
+            onChange={(prompt) => setForm({ ...form, prompt })}
+          />
+
           {add.isError && (
             <p className="text-sm text-destructive">{add.error.message}</p>
           )}
@@ -148,7 +161,10 @@ export function AddModelDialog() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={add.isPending}>
+            <Button
+              type="submit"
+              disabled={add.isPending || form.prompt.length > MAX_PROMPT_LENGTH}
+            >
               {add.isPending ? 'Adding...' : 'Add model'}
             </Button>
           </DialogFooter>

@@ -137,6 +137,18 @@ def test_open_stream_unsupported_provider():
         providers.open_stream("no", "chat", {})
     assert e.value.status_code==501
 
+# Extract text test
 
+def test_extract_text_without_text_parts_or_of_other_types():
+    assert logic.extract_text([{"type":"image_url"}]) is None
+    assert logic.extract_text(None) is None
 
-    
+def test_estract_res_text_without_message_or_text():
+    assert logic.extract_res_text({"choices":[{"finish_reason":"stop"}]}) is None
+
+def test_estimate_tokens():
+    assert logic.estimate_tokens([])==0
+    assert logic.estimate_tokens([""])==0
+    assert logic.estimate_tokens(["abcd"])==1
+    assert logic.estimate_tokens(["abcde"])==2
+    assert logic.estimate_tokens(["ab", "cd", "ef"])==2 #6 chars->2tokens

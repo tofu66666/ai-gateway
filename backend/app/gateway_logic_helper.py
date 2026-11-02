@@ -13,13 +13,22 @@ def pick_model(name:str, candidates: list[dict])->dict | None:
 # Master prompt
 # I will suppose that the master prompt is in the form {"role": "system", "content"}
 def apply_master_prompt(body:dict, prompt:str | None)->dict:
-    # Put the model's master prompt in front of the conversation as a system message
+    # Put the model's master prompt in front of the conversation as a system message.
+    # Gemini's OpenAI-compatible API keeps only the last system message, so a caller's
+    # own system text joins the master prompt in that one message instead of replacing it.
     if not prompt or not prompt.strip():
         return body
     messages=body.get("messages")
     if not isinstance(messages, list):
         return body
-    return {**body, "messages":[{"role": "system","content": prompt}, *messages]}
+    own=[]
+    rest=[]
+    for m in messages:
+        if isinstance(m, dict) and m.get("role")=="system" and isinstance(m.get("content"), str):
+            own.append(m["content"])
+        else:
+            rest.append(m)
+    return {**body, "messages":[{"role": "system","content": "\n\n".join([prompt, *own])}, *rest]}
 
 # Error management: Hide provider auth error
 # 401: Unauthorized / 403: Forbidden

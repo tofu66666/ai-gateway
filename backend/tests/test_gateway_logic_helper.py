@@ -45,10 +45,35 @@ def test_no_master_prompt(prompt):
 def test_master_prompt_ignore_body_without_messages():
     assert logic.apply_master_prompt({"input": "x"}, "p")=={"input": "x"}
 
-def test_master_prompt_keeps_own_system_message():
+# Gemini keeps only the last system message: the caller's own joins the master prompt
+def test_master_prompt_merges_own_system_message():
     body={"messages":[{"role": "system","content":"me"},{"role": "user","content":"hi"}]}
-    roles=[m["content"] for m in logic.apply_master_prompt(body, "admin")["messages"]]
-    assert roles==["admin","me","hi"]
+    assert logic.apply_master_prompt(body, "admin")["messages"]==[
+        {"role": "system", "content": "admin\n\nme"},
+        {"role": "user","content":"hi"}
+    ]
+
+# Every system text joins, in order, wherever it was in the conversation
+def test_master_prompt_merges_every_system_message():
+    body={"messages":[
+        {"role": "system","content":"one"},
+        {"role": "user","content":"hi"},
+        {"role": "system","content":"two"},
+    ]}
+    assert logic.apply_master_prompt(body, "admin")["messages"]==[
+        {"role": "system", "content": "admin\n\none\n\ntwo"},
+        {"role": "user","content":"hi"}
+    ]
+
+# A system message that is not plain text stays where it is
+def test_master_prompt_leaves_non_text_system_message():
+    parts=[{"type": "text","text":"me"}]
+    body={"messages":[{"role": "system","content":parts},{"role": "user","content":"hi"}]}
+    assert logic.apply_master_prompt(body, "admin")["messages"]==[
+        {"role": "system", "content": "admin"},
+        {"role": "system","content":parts},
+        {"role": "user","content":"hi"}
+    ]
 
 # Test provider_auth_errors
 

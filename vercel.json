@@ -13,15 +13,13 @@
     {
       "source": "/api/(.*)",
       "destination": {
-        "service": "backend",
-        "path": "/$1"
+        "service": "backend"
       }
     },
     {
       "source": "/(.*)",
       "destination": {
-        "service": "frontend",
-        "path": "/$1"
+        "service": "frontend"
       }
     }
   ]

@@ -2,6 +2,8 @@ import time
 import logging
 from datetime import datetime, timezone
 import uuid
+import queue
+import threading
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,6 +19,23 @@ from app.routers.virtual_key import validate_virtual_key, hash_key
 logger=logging.getLogger(__name__)
 router=APIRouter(tags=["gateway"])
 bearer=HTTPBearer()
+
+# When the caller hangs up, Starlette does not close the stream's generator; the
+# garbage collector closes it later, on whatever thread is running, possibly in the
+# middle of another Supabase call that holds the HTTP/2 connection's lock. Calling
+# Supabase from that finally then deadlocks every later database call, so the log
+# of a hung-up stream is queued for its own thread.
+hangup_logs=queue.SimpleQueue()
+
+def write_hangup_logs():
+    while True:
+        record=hangup_logs.get()
+        try:
+            request_log.log_request(**record)
+        except Exception:
+            logger.exception("Failed to log a hung-up stream")
+
+threading.Thread(target=write_hangup_logs, name="stream-log", daemon=True).start()
 
 # Find virtual_key
 def lookup_key_id(raw_key:str)->str|None:
@@ -264,7 +283,7 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
             raise
         finally: # End stream without error
             upstream.close()
-            request_log.log_request(
+            record=dict(
                 key=key,
                 model=row,
                 payload={"usage": usage} if usage else {},
@@ -275,6 +294,11 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
                 request_text=request_text,
                 response_text="".join(parts) if status_code<400 else None
             )
+            if status_code==499:
+                # Maybe inside the garbage collector: see hangup_logs
+                hangup_logs.put(record)
+            else:
+                request_log.log_request(**record)
     return StreamingResponse(
         events(),
         media_type="text/event-stream",

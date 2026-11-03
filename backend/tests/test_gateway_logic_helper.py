@@ -150,7 +150,7 @@ def test_open_stream_send_req_and_closes(monkeypatch):
     
     real=httpx.Client
     monkeypatch.setattr(providers.httpx, "Client", lambda timeout: real(timeout=timeout,transport=httpx.MockTransport(sim)))
-    s=providers.open_stream("openai", "chat", {"stream": True})
+    s=providers.open_stream({"provider": "openai"}, "chat", {"stream": True})
     assert s.status_code==200
     assert [l for l in s.iter_lines() if l]==["data: x", "data: [DONE]"]
     s.close()
@@ -159,7 +159,7 @@ def test_open_stream_send_req_and_closes(monkeypatch):
 
 def test_open_stream_unsupported_provider():
     with pytest.raises(Exception) as e:
-        providers.open_stream("no", "chat", {})
+        providers.open_stream({"provider": "no"}, "chat", {})
     assert e.value.status_code==501
 
 

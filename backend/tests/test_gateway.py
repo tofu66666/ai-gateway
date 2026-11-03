@@ -488,6 +488,8 @@ def log_setup(monkeypatch):
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
     monkeypatch.setattr(guardrails, "get_project_guardrails", lambda project_id: NO_GUARDRAILS)
+    monkeypatch.setattr(gateway, "get_deployments", lambda model_id: [one_deployment(MODEL)])
+    monkeypatch.setattr(load_balancer, "balancer", LoadBalancer())
     logged=[]
     monkeypatch.setattr(request_log, "log_request", lambda **a: logged.append(a))
     return logged

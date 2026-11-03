@@ -8,7 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app import guardrails, request_log
+from app import guardrails, load_balancer, request_log
+from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
 client=TestClient(app)
@@ -16,6 +17,10 @@ AUTH={"Authorization": "Bearer vktest"}
 MODEL={"id":"m1", "alias":"mq", "provider":"google", "model":"gemini-x"}
 KEY={"user_id":"u1", "project_id":"p1","model_ids":["m1"]}
 BODY={"model":"mq", "stream": True, "messages":[{"role": "user", "content": "hi"}]}
+
+def one_deployment():
+    # Read MODEL when called, so tests that change its provider change this too
+    return {"id":"d1", "provider":MODEL["provider"], "model":MODEL["model"], "base_url":None, "api_key_env":None}
 
 def chunk(text=None, usage=None, finish=None):
     c={"choices":[]}
@@ -51,13 +56,15 @@ def stream_setup(monkeypatch):
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
     monkeypatch.setattr(guardrails, "get_project_guardrails",
                         lambda project_id: {"blocked_patterns": [], "max_tokens_cap": None})
+    monkeypatch.setattr(gateway, "get_deployments", lambda model_id: [one_deployment()])
+    monkeypatch.setattr(load_balancer, "balancer", LoadBalancer())
     logged=[]
     monkeypatch.setattr(request_log, "log_request", lambda **a: logged.append(a))
     sent={}
 
     def provide(stream=None, error=None):
-        def fake_open(provider, endpoint, body):
-            sent.update(provider=provider, endpoint=endpoint, body=body)
+        def fake_open(deployment, endpoint, body):
+            sent.update(deployment=deployment, endpoint=endpoint, body=body)
             if error:
                 raise error
             return stream
@@ -204,7 +211,7 @@ def test_caller_hangup_is_logged_499(stream_setup):
     logged, sent, provide=stream_setup
     stream=FakeStream(GOOD)
     provide(stream)
-    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, KEY, "hi")
+    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, one_deployment(), KEY, "hi")
 
     async def read_one_then_leave():
         it=resp.body_iterator

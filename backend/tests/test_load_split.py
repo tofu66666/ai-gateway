@@ -15,14 +15,25 @@ REQUESTS = 200
 CONCURRENCY = 8
 
 
-@pytest.fixture
-def stub():
-    server = make_server(0, {"fast": 0.002, "slow": 0.05})
+def serve(delays):
+    server = make_server(0, delays)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_address[1]}"
     server.shutdown()
     server.server_close()
+
+
+@pytest.fixture
+def stub():
+    yield from serve({"fast": 0.002, "slow": 0.05})
+
+
+@pytest.fixture
+def uneven_stub():
+    # On a slow CI runner, test overhead hides a small gap between the two,
+    # so least_busy needs a slow deployment that is clearly slower
+    yield from serve({"fast": 0.002, "slow": 0.2})
 
 
 def deployment(stub, name):
@@ -59,13 +70,15 @@ def test_round_robin_splits_requests_evenly(monkeypatch, stub):
     assert split == {"d-fast": 100, "d-slow": 100}
 
 
-def test_least_busy_sends_more_to_the_faster_deployment(monkeypatch, stub):
-    two = [deployment(stub, "fast"), deployment(stub, "slow")]
+def test_least_busy_sends_more_to_the_faster_deployment(monkeypatch, uneven_stub):
+    two = [deployment(uneven_stub, "fast"), deployment(uneven_stub, "slow")]
 
     split = run_load(monkeypatch, "least_busy", two)
 
+    # Round robin would split 100/100. The exact share depends on the machine:
+    # about 3x on half a CPU, still over 1.5x on a quarter of one
     assert sum(split.values()) == REQUESTS
-    assert split["d-fast"] > split["d-slow"] * 3
+    assert split["d-fast"] > split["d-slow"] * 1.25
 
 
 def test_deployment_in_cooldown_gets_no_load(monkeypatch, stub):

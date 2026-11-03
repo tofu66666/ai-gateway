@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { CircleAlert, Send } from 'lucide-react'
+import { CircleAlert, Send, Square } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { GatewayError, sendChat } from '@/api/gateway'
+import { GatewayError, sendChat, streamChat } from '@/api/gateway'
 import { useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { hasMasterPrompt } from '@/features/models/masterPrompt'
 import { MasterPromptMark } from '@/features/models/MasterPromptMark'
@@ -33,26 +34,50 @@ import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
 import { CreateKeyDialog } from './CreateKeyDialog'
 
-type Sent = { model: Model; virtualKey: string; prompt: string }
+type Sent = {
+  model: Model
+  virtualKey: string
+  prompt: string
+  stream: boolean
+}
 
 // H18IALMOND-11: the key decides the project, so the gateway refuses a model
-// that project does not allow.
+// that project does not allow. H18IALMOND-21: the answer can stream in.
 export function PlaygroundPage() {
   const models = useModels()
   const [modelId, setModelId] = useState('')
   const [virtualKey, setVirtualKey] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [stream, setStream] = useState(true)
+  // The answer so far while it streams in; it stays if the stream fails.
+  const [liveText, setLiveText] = useState('')
+  const stop = useRef<AbortController | null>(null)
   const model = models.data?.find((candidate) => candidate.id === modelId)
 
   const send = useMutation({
-    mutationFn: (request: Sent) =>
-      sendChat(request.virtualKey, request.model.alias, request.prompt),
+    mutationFn: (request: Sent) => {
+      if (!request.stream) {
+        return sendChat(request.virtualKey, request.model.alias, request.prompt)
+      }
+      const controller = new AbortController()
+      stop.current = controller
+      return streamChat(
+        request.virtualKey,
+        request.model.alias,
+        request.prompt,
+        { onText: setLiveText, signal: controller.signal },
+      )
+    },
   })
   const sent = send.variables
+  const reply = send.data
+  const streaming = send.isPending && sent?.stream === true
+  const text = reply ? reply.content : liveText
 
   function handleSend() {
     if (model) {
-      send.mutate({ model, virtualKey: virtualKey.trim(), prompt })
+      setLiveText('')
+      send.mutate({ model, virtualKey: virtualKey.trim(), prompt, stream })
     }
   }
 
@@ -128,19 +153,40 @@ export function PlaygroundPage() {
             />
           </div>
 
-          <div className="flex justify-end">
-            <Button
-              onClick={handleSend}
-              disabled={
-                send.isPending ||
-                !model ||
-                !virtualKey.trim() ||
-                !prompt.trim()
-              }
-            >
-              <Send />
-              {send.isPending ? 'Sending...' : 'Send Request'}
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="stream"
+                checked={stream}
+                onCheckedChange={setStream}
+                disabled={send.isPending}
+              />
+              <Label htmlFor="stream">Stream the response</Label>
+            </div>
+            <div className="flex gap-2">
+              {streaming && (
+                <Button variant="outline" onClick={() => stop.current?.abort()}>
+                  <Square />
+                  Stop
+                </Button>
+              )}
+              <Button
+                onClick={handleSend}
+                disabled={
+                  send.isPending ||
+                  !model ||
+                  !virtualKey.trim() ||
+                  !prompt.trim()
+                }
+              >
+                <Send />
+                {streaming
+                  ? 'Streaming...'
+                  : send.isPending
+                    ? 'Sending...'
+                    : 'Send Request'}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -156,35 +202,61 @@ export function PlaygroundPage() {
         <CardContent className="space-y-4">
           {send.isError && <GatewayAlert error={send.error} />}
 
-          <div className="min-h-32 rounded-md border p-4 text-sm whitespace-pre-wrap">
-            {send.data ? (
-              send.data.content
+          <div
+            aria-busy={send.isPending}
+            className="min-h-32 rounded-md border p-4 text-sm whitespace-pre-wrap"
+          >
+            {text ? (
+              <>
+                {text}
+                {streaming && (
+                  <span
+                    aria-hidden="true"
+                    className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse bg-foreground/60"
+                  />
+                )}
+              </>
             ) : (
               <span className="text-muted-foreground">
-                {send.isPending ? 'Waiting for the model...' : 'No response yet.'}
+                {send.isPending
+                  ? 'Waiting for the model...'
+                  : reply?.stopped
+                    ? 'Stopped before the model answered.'
+                    : 'No response yet.'}
               </span>
             )}
           </div>
 
-          {send.data && sent && (
+          {reply && sent && (
             <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 text-sm text-muted-foreground">
-              <span>
-                Tokens: {send.data.inputTokens} in, {send.data.outputTokens} out
-              </span>
-              <span>
-                Cost:{' '}
-                {formatMoney(
-                  requestCost(
-                    sent.model,
-                    send.data.inputTokens ?? 0,
-                    send.data.outputTokens ?? 0,
-                  ),
-                )}
-              </span>
-              <span>Latency: {send.data.latencyMs} ms</span>
-              {send.data.requestId && (
-                <span>Request ID: {send.data.requestId}</span>
+              {reply.inputTokens === null || reply.outputTokens === null ? (
+                <span>
+                  Tokens: not reported{reply.stopped && ' (stopped early)'}
+                </span>
+              ) : (
+                <>
+                  <span>
+                    Tokens: {reply.inputTokens} in, {reply.outputTokens} out
+                  </span>
+                  <span>
+                    Cost:{' '}
+                    {formatMoney(
+                      requestCost(
+                        sent.model,
+                        reply.inputTokens,
+                        reply.outputTokens,
+                      ),
+                    )}
+                  </span>
+                </>
               )}
+              {reply.firstTokenMs !== null && (
+                <span>First token: {reply.firstTokenMs} ms</span>
+              )}
+              <span>
+                {sent.stream ? 'Total' : 'Latency'}: {reply.latencyMs} ms
+              </span>
+              {reply.requestId && <span>Request ID: {reply.requestId}</span>}
             </div>
           )}
         </CardContent>

@@ -229,10 +229,13 @@ export function PlaygroundPage() {
 
           {reply && sent && (
             <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 text-sm text-muted-foreground">
-              {reply.inputTokens === null || reply.outputTokens === null ? (
-                <span>
-                  Tokens: not reported{reply.stopped && ' (stopped early)'}
+              {reply.stopped && (
+                <span className="font-medium text-foreground">
+                  Stopped early
                 </span>
+              )}
+              {reply.inputTokens === null || reply.outputTokens === null ? (
+                <span>Tokens: not reported</span>
               ) : (
                 <>
                   <span>

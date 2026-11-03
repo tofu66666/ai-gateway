@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Copy, KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { ApiError } from '@/api/client'
 import { useModels, useProjects, useTeams } from '@/api/hooks'
 import { createKey } from '@/api/keys'
 import { ErrorState } from '@/components/layout/ErrorState'
@@ -68,10 +69,12 @@ export function CreateKeyDialog({
     }
   }
 
-  // Another project allows different models, so the choice starts again.
+  // Another project allows different models, so the choice starts again, and
+  // the last project's error no longer applies.
   function changeProject(id: string) {
     setProjectId(id)
     setModelIds([])
+    create.reset()
   }
 
   function toggleModel(id: string, checked: boolean) {
@@ -155,6 +158,12 @@ export function CreateKeyDialog({
                 ))}
               </SelectContent>
             </Select>
+            {/* An admin sees every project but, like anyone, can only create
+                keys where the backend's can_create_key allows it. */}
+            <p className="text-xs text-muted-foreground">
+              You can create keys only in teams you lead, or where your team
+              lead allows it.
+            </p>
 
             {projects.isError && (
               <ErrorState
@@ -192,7 +201,9 @@ export function CreateKeyDialog({
 
             {create.isError && (
               <p className="text-sm text-destructive">
-                {create.error.message}
+                {create.error instanceof ApiError && create.error.status === 403
+                  ? "You can't create keys in this project. Ask its team lead for permission."
+                  : create.error.message}
               </p>
             )}
           </div>

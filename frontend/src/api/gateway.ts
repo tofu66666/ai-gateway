@@ -4,7 +4,8 @@
 
 export type ChatReply = {
   content: string
-  // null when the gateway reported no usage, as when a stream is stopped.
+  // null when the gateway reported no usage, as when a stream stops before
+  // any arrives.
   inputTokens: number | null
   outputTokens: number | null
   latencyMs: number
@@ -33,8 +34,9 @@ type Completion = {
   usage?: Usage
 }
 
-// One event of a stream (H18IALMOND-21). The last one before [DONE] has no
-// choices, only usage; a provider failure mid-stream arrives as {"error"}.
+// One event of a stream (H18IALMOND-21). Usage comes in the last chunk, or in
+// every chunk (Gemini), so the latest one counts; a provider failure
+// mid-stream arrives as {"error"}.
 type StreamChunk = {
   choices?: { delta?: { content?: string | null } }[]
   usage?: Usage | null

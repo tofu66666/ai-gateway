@@ -8,6 +8,10 @@ export type Model = {
   price_per_1m_output: number
   // Where the provider processes the data; "Not specified" when unknown.
   data_processing_country: string
+  // Whether chat requests to this model start with a master prompt
+  // (H18IALMOND-56). Only admins also get the prompt itself.
+  has_prompt?: boolean
+  prompt?: string | null
 }
 
 export type Project = {
@@ -38,6 +42,7 @@ export type NewModel = {
   price_per_1m_input: number
   price_per_1m_output: number
   data_processing_country: string | null
+  prompt?: string
 }
 
 export function getModels() {
@@ -47,6 +52,14 @@ export function getModels() {
 // Admins only (H18IALMOND-53).
 export function createModel(model: NewModel) {
   return apiFetch<Model>('/models', { method: 'POST', body: model })
+}
+
+// Admins only; null removes the prompt (H18IALMOND-57).
+export function updateModelPrompt(modelId: string, prompt: string | null) {
+  return apiFetch<Model>(`/models/${modelId}/prompt`, {
+    method: 'PATCH',
+    body: { prompt },
+  })
 }
 
 // Projects in the caller's teams (all of them for an admin). The endpoint is

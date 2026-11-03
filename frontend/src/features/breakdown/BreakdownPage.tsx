@@ -209,16 +209,20 @@ export function BreakdownPage() {
     const period =
       timeWindows.find((option) => option.value === timeWindow)?.label ??
       timeWindow
-    const now = new Date()
-    const filePeriod = `${now.getFullYear()}-${String(
-      now.getMonth() + 1,
-    ).padStart(2, '0')}`
+    // spend_by_user_research-team_this_month_<date>.csv inside a team, as in
+    // 3.b Storyboard 3, frame 4.
+    const team =
+      filters.team === 'all'
+        ? ''
+        : `${nameOf('team', filters.team)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')}_`
 
     exportBreakdownCsv({
       rows: sorted,
       groupBy,
       period,
-      filePeriod,
+      fileTag: `${team}${timeWindow}`,
       nameOf: (key) => nameOf(groupBy, key),
     })
   }
@@ -293,7 +297,7 @@ export function BreakdownPage() {
               type="button"
               variant="outline"
               onClick={exportCsv}
-              disabled={isPending}
+              disabled={isPending || sorted.length === 0}
             >
               <Download aria-hidden className="size-4" />
               Export CSV

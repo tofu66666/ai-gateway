@@ -26,6 +26,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { hasMasterPrompt } from '@/features/models/masterPrompt'
+import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
@@ -88,11 +90,18 @@ export function PlaygroundPage() {
                     <span className="flex items-center gap-2">
                       {option.alias}
                       <ProcessedIn model={option} />
+                      <MasterPromptMark model={option} />
                     </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {model && hasMasterPrompt(model) && (
+              <p className="text-xs text-muted-foreground">
+                An admin set a master prompt for this model: it goes before your
+                prompt and counts as input tokens.
+              </p>
+            )}
             {models.isError && (
               <p className="text-sm text-destructive">{models.error.message}</p>
             )}

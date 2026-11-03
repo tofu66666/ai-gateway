@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 
 import { queryKeys, useTeams } from '@/api/hooks'
 import { createTeam } from '@/api/teams'
+import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Button } from '@/components/ui/button'
 import {
@@ -30,6 +31,7 @@ import { Label } from '@/components/ui/label'
 
 // Members are managed on each team's page (H18IALMOND-51).
 export function TeamsPage() {
+  const isAdmin = useCurrentUser().role === 'admin'
   const teams = useTeams()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -67,9 +69,12 @@ export function TeamsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Your Teams</CardTitle>
+          <CardTitle>{isAdmin ? 'All Teams' : 'Your Teams'}</CardTitle>
           <CardDescription>
-            Teams you currently belong to.
+            {/* Admins see every team, whether or not they are in it. */}
+            {isAdmin
+              ? 'Every team on the platform.'
+              : 'Teams you currently belong to.'}
           </CardDescription>
           <CardAction>
             <Button size="sm" onClick={() => setOpen(true)}>

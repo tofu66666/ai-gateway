@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ListOrdered,
   MessageSquareText,
+  ScrollText,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -20,6 +21,7 @@ export type NavItem = {
 
 const everyone: Role[] = ['user', 'team_lead', 'admin']
 export const leadsAndAdmins: Role[] = ['team_lead', 'admin']
+export const admins: Role[] = ['admin']
 
 // Same order as the admin sidebar in the 3.b navigation map.
 export const navItems: NavItem[] = [
@@ -62,6 +64,12 @@ export const navItems: NavItem[] = [
     icon: ListOrdered,
     roles: everyone,
     usesTimeWindow: true,
+  },
+  {
+    path: '/audit-logs',
+    label: 'Audit Logs',
+    icon: ScrollText,
+    roles: admins,
   },
 ]
 

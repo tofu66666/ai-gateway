@@ -1,4 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
+import {
+  getAuditActions,
+  getAuditLogs,
+  type AuditLogFilters,
+} from './audit'
 import { getKeys } from './keys'
 import { getModels, getProjects } from './projects'
 import { getRequests } from './requests'
@@ -28,6 +33,8 @@ export const queryKeys = {
   ],
   teamUsage: (teamIds: string[]) => ['team-usage', ...teamIds],
   teamBudgets: (teamIds: string[]) => ['team-budgets', ...teamIds],
+  auditActions: ['audit-actions'],
+  auditLogs: (filters: AuditLogFilters) => ['audit-logs', filters],
 }
 
 export function useTeams() {
@@ -92,5 +99,19 @@ export function useTeamBudgets(teams: Team[] | undefined) {
     queryFn: () =>
       Promise.all((teams ?? []).map((team) => getTeamBudget(team.id))),
     enabled: teams !== undefined,
+  })
+}
+
+export function useAuditActions() {
+  return useQuery({
+    queryKey: queryKeys.auditActions,
+    queryFn: getAuditActions,
+  })
+}
+
+export function useAuditLogs(filters: AuditLogFilters = {}) {
+  return useQuery({
+    queryKey: queryKeys.auditLogs(filters),
+    queryFn: () => getAuditLogs(filters),
   })
 }

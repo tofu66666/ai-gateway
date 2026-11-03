@@ -66,8 +66,8 @@ def list_audit_actions(
 
 @router.get("/audit_logs", status_code=status.HTTP_200_OK)
 def list_audit_logs(
-    payload: AuditLogRequest,
     response: Response,
+    payload: AuditLogRequest = Depends(),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """List audit entries filtered by action, user email, and time range."""

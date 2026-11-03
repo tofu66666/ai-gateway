@@ -1,3 +1,4 @@
+import { downloadCsv, toCsv } from '@/lib/csv'
 import type { GroupBy, GroupTotal } from './aggregate'
 
 const headers = [
@@ -9,25 +10,20 @@ const headers = [
   'cost in USD',
 ]
 
-function escapeCsv(value: string | number) {
-  const text = String(value)
-  if (/[",\n]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`
-  }
-  return text
-}
-
+// H18IALMOND-31: the rows on screen as a spreadsheet. The shared helpers quote
+// cells, keep names that look like formulas as text, add the byte order mark
+// Excel needs, and end the file name with today's date.
 export function exportBreakdownCsv({
   rows,
   groupBy,
   period,
-  filePeriod,
+  fileTag,
   nameOf,
 }: {
   rows: GroupTotal[]
   groupBy: GroupBy
   period: string
-  filePeriod: string
+  fileTag: string
   nameOf: (key: string) => string
 }) {
   const csvRows = rows.map((row) => [
@@ -39,17 +35,5 @@ export function exportBreakdownCsv({
     row.cost,
   ])
 
-  const csv = [headers, ...csvRows]
-    .map((row) => row.map(escapeCsv).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-
-  link.href = url
-  link.download = `spend_by_${groupBy}_${filePeriod}.csv`
-  link.click()
-
-  URL.revokeObjectURL(url)
+  downloadCsv(`spend_by_${groupBy}_${fileTag}`, toCsv([headers, ...csvRows]))
 }

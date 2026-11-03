@@ -165,3 +165,24 @@ def test_open_stream_unsupported_provider():
 
 
     
+# H18IALMOND-37: a deployment's own URL and key are used for streams too
+
+def stream_to(monkeypatch, deployment):
+    seen={}
+    def sim(request):
+        seen.update(url=str(request.url), auth=request.headers.get("authorization"))
+        return httpx.Response(200, content=b"data: [DONE]\n\n")
+    real=httpx.Client
+    monkeypatch.setattr(providers.httpx, "Client", lambda timeout: real(timeout=timeout,transport=httpx.MockTransport(sim)))
+    providers.open_stream(deployment, "chat", {"stream": True}).close()
+    return seen
+
+def test_open_stream_uses_the_deployments_url_and_key(monkeypatch):
+    monkeypatch.setenv("LLM_KEY_EAST", "east-key")
+    seen=stream_to(monkeypatch, {"provider": "openai", "base_url": "https://east.test/v1", "api_key_env": "LLM_KEY_EAST"})
+    assert seen=={"url": "https://east.test/v1/chat/completions", "auth": "Bearer east-key"}
+
+def test_open_stream_never_sends_the_shared_key_to_a_custom_url(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "shared-key")
+    seen=stream_to(monkeypatch, {"provider": "openai", "base_url": "https://east.test/v1"})
+    assert seen["auth"] is None

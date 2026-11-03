@@ -235,7 +235,7 @@ def test_caller_hangup_is_logged_on_its_own_thread(stream_setup, monkeypatch):
     monkeypatch.setattr(request_log, "log_request",
                         lambda **a: threads.append(threading.current_thread().name))
     provide(FakeStream(GOOD))
-    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, KEY, "hi")
+    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, one_deployment(), KEY, "hi")
 
     async def read_one_then_leave():
         it=resp.body_iterator
@@ -248,3 +248,70 @@ def test_caller_hangup_is_logged_on_its_own_thread(stream_setup, monkeypatch):
     gc.collect()
     wait_for(threads)
     assert threads==["stream-log"]
+
+# H18IALMOND-37: streams go through the load balancer like other requests
+
+def deployment(name):
+    return {**one_deployment(), "id": f"d-{name}"}
+
+class BusyCheck(FakeStream):
+    # Records how busy the deployment is while the stream is being read
+    def iter_lines(self):
+        self.busy=load_balancer.balancer.in_flight("d1")
+        yield from super().iter_lines()
+
+def test_stream_logs_its_deployment(stream_setup):
+    logged, sent, provide=stream_setup
+    provide(FakeStream(GOOD))
+    do_post()
+    assert sent["deployment"]["id"]=="d1"
+    assert logged[0]["deployment_id"]=="d1"
+
+def test_streams_take_turns_across_deployments(stream_setup, monkeypatch):
+    logged, sent, provide=stream_setup
+    monkeypatch.setattr(gateway, "get_deployments", lambda model_id: [deployment("east"), deployment("west")])
+    used=[]
+    for _ in range(4):
+        provide(FakeStream(GOOD))
+        do_post()
+        used.append(sent["deployment"]["id"])
+    assert used==["d-east", "d-west", "d-east", "d-west"]
+
+def test_deployment_stays_busy_until_the_stream_ends(stream_setup):
+    logged, sent, provide=stream_setup
+    stream=BusyCheck(GOOD)
+    provide(stream)
+    do_post()
+    assert stream.busy==1
+    assert load_balancer.balancer.in_flight("d1")==0
+
+@pytest.mark.parametrize("make_stream", [
+    lambda: FakeStream([chunk("a"), ""], fail=httpx.RemoteProtocolError("lost")),
+    lambda: FakeStream([], status=500, body=b'{"error": {"message": "down"}}'),
+])
+def test_failed_streams_put_the_deployment_in_cooldown(stream_setup, make_stream):
+    logged, sent, provide=stream_setup
+    for _ in range(3):
+        provide(make_stream())
+        do_post()
+    assert load_balancer.balancer.cooldown_left("d1")>0
+    assert load_balancer.balancer.in_flight("d1")==0
+    assert do_post().status_code==503
+
+def test_caller_hangup_frees_the_deployment_without_a_failure(stream_setup):
+    import asyncio, gc
+    logged, sent, provide=stream_setup
+    provide(FakeStream(GOOD))
+    chosen=load_balancer.balancer.acquire("m1", [one_deployment()], None)
+    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, chosen, KEY, "hi")
+
+    async def read_one_then_leave():
+        it=resp.body_iterator
+        await it.__anext__()
+        await it.aclose()
+
+    asyncio.run(read_one_then_leave())
+    del resp
+    gc.collect()
+    assert load_balancer.balancer.in_flight("d1")==0
+    assert load_balancer.balancer.cooldown_left("d1")==0

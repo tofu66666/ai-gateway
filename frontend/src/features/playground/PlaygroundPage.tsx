@@ -176,8 +176,8 @@ export function PlaygroundPage() {
                 {formatMoney(
                   requestCost(
                     sent.model,
-                    send.data.inputTokens,
-                    send.data.outputTokens,
+                    send.data.inputTokens ?? 0,
+                    send.data.outputTokens ?? 0,
                   ),
                 )}
               </span>

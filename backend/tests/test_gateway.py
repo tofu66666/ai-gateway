@@ -473,24 +473,70 @@ def test_logs_error_res_with_req_id_no_model(monkeypatch):
     assert r.headers["X-Request-ID"]=="req2"
     assert "model" not in r.json() 
 
-"""# check get_model_by_alias
-def test_get_model_by_alias(monkeypatch):
-    row={
-        "id":"m1",
-        "provider":"google",
-        "model": "gemini-3.5-flash-lite",
-        "price_per_1m_input": 0.1, 
-        "price_per_1m_output": 0.4
-    }
-    fake=fake_supabase([row])
-    monkeypatch.setattr(gateway,"supabase",fake)
+@pytest.fixture
+def log_setup(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, gateway.require_budget_available, lambda: KEY)
+    monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
+    monkeypatch.setattr(gateway, "model_exists", lambda name: True)
+    monkeypatch.setattr(guardrails, "get_project_guardrails", lambda project_id: NO_GUARDRAILS)
+    logged=[]
+    monkeypatch.setattr(request_log, "log_request", lambda **a: logged.append(a))
+    return logged
 
-    assert gateway.get_model_by_alias("mq")==row
-    assert fake.table.return_value.select.return_value.eq.call_args==call("alias", "mq")
+# Non-streaming: {"choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],
+#                 "usage":{"prompt_tokens":10,"completion_tokens":5}}
+# Non-streaming -> message
+# Streaming chunk {"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}
+# Streaming-> delta
 
-# Unknown alias
-def test_get_model_by_alias_unknown(monkeypatch):
-    monkeypatch.setattr(gateway,"supabase",fake_supabase([]))
+# test request logs: request and response texts
+def test_json_req_log_req_res_text(log_setup, monkeypatch):
+    logged=log_setup
+    reply={"choices":[{"message":{"role":"assistant", "content": "hello"}}]}
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(200, json=reply))
+    r=client.post("/chat/completions", headers=AUTH, json={
+        "model":"mq",
+        "messages":[{"role":"user","content":"q1"},
+                    {"role":"assistant","content":"a1"},
+                    {"role":"user","content":"q2"}],
+    })
+    assert r.status_code==200
+    assert logged[0]["request_text"]=="q2" # Pick the newest message
+    assert logged[0]["response_text"]=="hello"
+
+def test_json_error_no_response(log_setup, monkeypatch):
+    logged=log_setup
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(500, json={"error": {"message": "x"}}))
+    client.post("/chat/completions", headers=AUTH, json={
+        "model":"mq",
+        "messages":[{"role":"user","content":"q1"}],
+    })
+    assert logged[0]["request_text"]=="q1"
+    assert logged[0]["response_text"] is None
+
+# Master prompt not in request_text saved
+
+def test_master_prompt_not_saved_as_request_text(log_setup, monkeypatch):
+    logged=log_setup
+    monkeypatch.setitem(MODEL, "prompt", "Be brief")
+    sent={}
+    def fake_call(p,e,b):
+        sent["body"]=b
+        return httpx.Response(200, json={"choices":[{"message":{"content":"ok"}}]})
     
-    assert gateway.get_model_by_alias("nope") is None"""
+    monkeypatch.setattr(gateway, "call_prov", fake_call)
+    client.post("/chat/completions", headers=AUTH, json={
+                "model":"mq",
+                "messages":[{"role":"user","content":"q1"}],
+    })
+    assert sent["body"]["messages"][0] == {"role":"system","content":"Be brief"} # maste prompt sent to the provider
+    assert logged[0]["request_text"]=="q1" # but not saved
+    
+
+
+
+
+
+
+
 

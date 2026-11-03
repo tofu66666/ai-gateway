@@ -1,6 +1,8 @@
 # Test stream : on POST /chat/completions and request_text, response_text logging
 
 import json
+import threading
+import time
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -191,6 +193,12 @@ def test_stream_master_prompt_applied_but_not_stored_as_request_text(stream_setu
     finally:
         MODEL.pop("prompt")
 
+def wait_for(items, timeout=1.0):
+    # A hung-up stream is logged by the stream-log thread, a moment later
+    end=time.monotonic()+timeout
+    while not items and time.monotonic()<end:
+        time.sleep(0.01)
+
 def test_caller_hangup_is_logged_499(stream_setup):
     import asyncio
     logged, sent, provide=stream_setup
@@ -207,5 +215,29 @@ def test_caller_hangup_is_logged_499(stream_setup):
     import gc
     del resp
     gc.collect()
+    wait_for(logged)
     assert logged[-1]["status_code"] == 499
     assert stream.closed
+
+def test_caller_hangup_is_logged_on_its_own_thread(stream_setup, monkeypatch):
+    # The thread that closes a hung-up stream may be in the middle of another
+    # Supabase call (the garbage collector closes it), so it must not log there.
+    import asyncio
+    logged, sent, provide=stream_setup
+    threads=[]
+    monkeypatch.setattr(request_log, "log_request",
+                        lambda **a: threads.append(threading.current_thread().name))
+    provide(FakeStream(GOOD))
+    resp=gateway.send_to_prov_stream({"model": "x"}, MODEL, KEY, "hi")
+
+    async def read_one_then_leave():
+        it=resp.body_iterator
+        await it.__anext__()
+        await it.aclose()
+
+    asyncio.run(read_one_then_leave())
+    import gc
+    del resp
+    gc.collect()
+    wait_for(threads)
+    assert threads==["stream-log"]

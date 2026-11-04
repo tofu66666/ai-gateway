@@ -141,32 +141,53 @@ def get_rows_for_id(id: str, current_user: CurrentUser, start: int, end: int):
             .data
         )
 
-    for column in ("model_id", "user_id", "key_id"):
-        if column == "user_id" and current_user.role != "admin":
-            if str(id) != str(current_user.id):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Forbidden: you can only view your own user stats",
-                )
+    model_rows = (
+        supabase.table("requests")
+        .select(REQUEST_COLUMNS)
+        .eq("model_id", str(id))
+        .gte("created_at", iso_utc(start))
+        .lte("created_at", iso_utc(end))
+        .execute()
+        .data
+    )
+    if model_rows:
+        return model_rows
 
-        if column == "key_id":
-            if not can_access_key(current_user, str(id)):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Forbidden: only the key owner, the project team owner, or an admin can access key stats",
-                )
+    user_rows = (
+        supabase.table("requests")
+        .select(REQUEST_COLUMNS)
+        .eq("user_id", str(id))
+        .gte("created_at", iso_utc(start))
+        .lte("created_at", iso_utc(end))
+        .execute()
+        .data
+    )
+    if user_rows:
+        if current_user.role != "admin" and str(id) != str(current_user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: you can only view your own user stats",
+            )
 
-        rows = (
-            supabase.table("requests")
-            .select(REQUEST_COLUMNS)
-            .eq(column, str(id))
-            .gte("created_at", iso_utc(start))
-            .lte("created_at", iso_utc(end))
-            .execute()
-            .data
-        )
-        if rows:
-            return rows
+        return user_rows
+
+    key_rows = (
+        supabase.table("requests")
+        .select(REQUEST_COLUMNS)
+        .eq("key_id", str(id))
+        .gte("created_at", iso_utc(start))
+        .lte("created_at", iso_utc(end))
+        .execute()
+        .data
+    )
+    if key_rows:
+        if not can_access_key(current_user, str(id)):
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: only the key owner, the project team owner, or an admin can access key stats",
+            )
+
+        return key_rows
 
     return []
 

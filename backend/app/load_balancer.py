@@ -16,8 +16,10 @@ COOLDOWN_SECONDS = 60
 class LoadBalancer:
     def __init__(self, clock=time.monotonic):
         self._clock = clock
-        # Sync endpoints run in a thread pool, so every count sits behind the lock
-        self._lock = threading.Lock()
+        # Sync endpoints run in a thread pool, so every count sits behind the lock.
+        # Reentrant because the garbage collector can close a hung-up stream, which
+        # calls release(), on a thread that is already inside acquire().
+        self._lock = threading.RLock()
         self._turns = defaultdict(int)
         self._in_flight = defaultdict(int)
         self._failures = defaultdict(list)

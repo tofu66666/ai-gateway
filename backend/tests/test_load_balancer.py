@@ -1,5 +1,6 @@
 # Choosing a deployment (H18IALMOND-37)
 
+import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
@@ -179,3 +180,29 @@ def test_all_deployments_in_cooldown():
     fail(balancer, "b")
 
     assert balancer.acquire("alias", [A, B], "round_robin") is None
+
+
+def test_release_from_inside_acquire_does_not_deadlock():
+    # The garbage collector can close a hung-up stream, whose release() then runs
+    # on a thread that already holds the lock inside acquire()
+    balancer = LoadBalancer()
+    balancer.acquire("alias", [B], "round_robin")
+    released = []
+
+    def clock():
+        if not released:
+            released.append(True)
+            balancer.release("b")
+        return 0
+
+    balancer._clock = clock
+    picked = []
+    worker = threading.Thread(
+        target=lambda: picked.append(balancer.acquire("alias", [A], "round_robin")),
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=2)
+
+    assert picked == [A]
+    assert balancer.in_flight("b") == 0

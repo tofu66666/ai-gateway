@@ -8,7 +8,8 @@ import pytest
 import httpx
 
 from app.main import app
-from app import budget, guardrails, request_log
+from app import budget, guardrails, load_balancer, request_log
+from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
 client=TestClient(app)
@@ -24,7 +25,10 @@ USAGE_REPLY={**REPLY,"usage":{"prompt_tokens":1000, "completion_tokens":500}}
 
 NO_GUARDRAILS={"blocked_patterns": [], "max_tokens_cap": None}
 
-def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS):
+def one_deployment(model):
+    return {"id":"d1", "provider":model["provider"], "model":model["model"], "base_url":None, "api_key_env":None}
+
+def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS, deployments=None):
     # Skip the key check
     monkeypatch.setitem(
         app.dependency_overrides, gateway.require_budget_available, lambda: key
@@ -35,6 +39,11 @@ def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS):
 
     monkeypatch.setattr(gateway, "get_allowed_models", lambda model_ids: allowed)
     monkeypatch.setattr(gateway, "model_exists", lambda name: model is not None)
+    if deployments is None:
+        deployments=[one_deployment(model)] if model else []
+    monkeypatch.setattr(gateway, "get_deployments", lambda model_id: deployments)
+    # Failures must not carry a cooldown into the next test
+    monkeypatch.setattr(load_balancer, "balancer", LoadBalancer())
 
 def fake_log(monkeypatch):
     # Substitui log_request
@@ -479,6 +488,8 @@ def log_setup(monkeypatch):
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
     monkeypatch.setattr(guardrails, "get_project_guardrails", lambda project_id: NO_GUARDRAILS)
+    monkeypatch.setattr(gateway, "get_deployments", lambda model_id: [one_deployment(MODEL)])
+    monkeypatch.setattr(load_balancer, "balancer", LoadBalancer())
     logged=[]
     monkeypatch.setattr(request_log, "log_request", lambda **a: logged.append(a))
     return logged

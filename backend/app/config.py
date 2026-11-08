@@ -15,3 +15,5 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # From inside the Docker use http://host.docker.internal:11434 (Ollama on the host)
 # or http://ollama:11434 (an ollama service in docker-compose)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+# Deployments can also name their own key, LLM_KEY_<NAME>, which providers.py
+# reads by name at request time. See "Load balancing" in DEVELOPMENT.md.

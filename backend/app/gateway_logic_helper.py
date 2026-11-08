@@ -148,3 +148,10 @@ def is_usage_only(chunk: dict)->bool:
 def error_event(message:str)->str:
     payload={"error":{"message":message, "type":"provider_error"}}
     return f"data: {json.dumps(payload)}\n\n"
+
+# H18IALMOND-37: A provider error or rate limit counts against the deployment.
+# Other 4xx mean the client's request was wrong, so the deployment is fine.
+# Runs after hide_provider_auth_errors, so a bad deployment key counts as a 502.
+
+def is_deployment_failure(status_code: int)->bool:
+    return status_code==429 or status_code>=500

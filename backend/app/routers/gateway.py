@@ -131,7 +131,7 @@ def get_key(credentials:HTTPAuthorizationCredentials=Depends(bearer)) -> dict:
         "key_model_ids": vk.get("model_ids") or []
     }
 
-def resolve_model(name:object, key:dict)->dict:
+def resolve_model(name:object, key:dict , endpoint: str)->dict:
     # Find the model,
     # Refuse it, if it is not allowed to the project or the key (403)
     # If it is wrong kind for this endpoint, 400
@@ -145,6 +145,9 @@ def resolve_model(name:object, key:dict)->dict:
     key_models={str(i) for i in key.get("key_model_ids") or []}
     if key_models and str(row["id"]) not in key_models:
         raise HTTPException(403, f"Model '{name}' is not allowed for this key")
+    kind=logic.model_kind(row)
+    if kind not in logic.ENDPOINT_KINDS[endpoint]:
+        raise HTTPException(400, f"Model '{name}' is a {kind} model and cannot be used on this endpoint")
     return row
 
 
@@ -165,7 +168,7 @@ def ms_since(started: float)->int:
     return int((time.perf_counter()-started)*1000)
 
 # log_and_respond=Second part of chat_completions (declare first here because the first part=send_to_prov use is in the end)
-def log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text=None):
+def log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text=None, usage_estimate=None):
     #Log the request and answer with JSON (use it for non-streaming answer)
     if status_code >= 400:
         new_status, payload=logic.hide_provider_auth_errors(status_code, payload)
@@ -174,12 +177,18 @@ def log_and_respond(status_code, payload, row, deployment, key, started, request
                 "Provider '%s' rejected the gateway's credentials (HTTP %s)", deployment["provider"], status_code
             )
             status_code=new_status
+    log_payload=payload
+    if (usage_estimate and status_code<400 and isinstance(payload, dict) and not payload.get("usage")):
+        # Some providers (gemini embeddings) does not report usage
+        # In that case, log an estimate, return the reply as is
+        log_payload = {**payload, "usage": {"prompt_tokens": usage_estimate, "total_tokens": usage_estimate}}
+
     if logic.is_deployment_failure(status_code):
         load_balancer.balancer.record_failure(deployment["id"])
     logged_id=request_log.log_request(
         key=key,
         model=row,
-        payload=payload,
+        payload=log_payload,
         status_code=status_code,
         latency_ms=ms_since(started),
         request_id=request_id,
@@ -195,7 +204,7 @@ def log_and_respond(status_code, payload, row, deployment, key, started, request
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 # First part of chat_completions
-def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, request_text=None):
+def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, request_text=None, usage_estimate=None):
     # Call the provider and wait for the whole answer
     request_id=str(uuid.uuid4())
     started=time.perf_counter()
@@ -216,7 +225,8 @@ def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, reques
             # For the case that it returns 200 OK or 302 found with a non-JSON file.
             if status_code < 400:
                 status_code = 502
-    return log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text)    
+    return log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text, usage_estimate)    
+
 
 def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
     # Sent events when they arrive, then log the finished stream
@@ -328,14 +338,14 @@ def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
     )
 
 
-def enforce_guardrails(body:dict, row:dict, key:dict)->dict:
+def enforce_guardrails(body:dict, row:dict, key:dict, endpoint:str="chat")->dict:
     # H18IALMOND-39: refuse blocked prompts and oversized requests before any provider call
     try:
         settings=guardrails.get_project_guardrails(str(key["project_id"]))
     except Exception as exc:
         raise HTTPException(503, "Could not verify project guardrails") from exc
     try:
-        return guardrails.check_request(body, settings)
+        return guardrails.check_request(body, settings, endpoint)
     except guardrails.GuardrailViolation as exc:
         # Log the blocked attempt; status >= 400 records 0 tokens and 0 cost
         logged_id=request_log.log_request(
@@ -366,11 +376,14 @@ def pick_deployment(row:dict, key:dict)->dict:
 
 def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here
-    row=resolve_model(body.get("model"), key)
-    body=enforce_guardrails(body, row, key)
+    row=resolve_model(body.get("model"), key, endpoint)
+    body=enforce_guardrails(body, row, key, endpoint)
     # Take the new message before adding the master prompt
     request_text=logic.extract_req_text(endpoint, body)
 
+    usage_estimate=None
+    if endpoint=="embeddings":
+        usage_estimate=logic.estimate_tokens(guardrails.prompt_texts(body))
     if body.get("stream") and endpoint!="chat":
         raise HTTPException(400, "Streaming is only available on /chat/completions")
     deployment=pick_deployment(row, key)
@@ -384,10 +397,29 @@ def send_req(endpoint:str, body:dict, key:dict):
             # A stream that started releases the deployment itself when it ends
             streaming=isinstance(response, StreamingResponse)
             return response
-        return send_to_prov_json(endpoint, provider_body, row, deployment, key, request_text)
+        return send_to_prov_json(endpoint, provider_body, row, deployment, key, request_text, usage_estimate)
     finally:
         if not streaming:
             load_balancer.balancer.release(deployment["id"])
+
+"""def send_responses(endpoint:str, body:dict, key:dict):
+    # responses 
+    row=resolve_model(body.get("model"), key, "responses")
+    body=enforce_guardrails(body, row, key)
+    # Take the new message before adding the master prompt
+    request_text=logic.extract_req_text(endpoint, body)
+
+    provider_body={**body,"model":row["model"]}
+    if supp_nat_response(row["provider"]):
+        provider_body={**body, "model": row["model"], "store":False}
+        provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
+        return send_to_prov_json("responses", provider_body, row, key)
+    
+    try:
+        provider_body=logic.responses_to_chat(body, row["model"],row.get("prompt"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return send_to_prov_json("responses", provider_body, row, key, request_text)"""
 
 
 
@@ -396,3 +428,17 @@ def send_req(endpoint:str, body:dict, key:dict):
 def chat_completions(body:dict, key:dict=Depends(require_budget_available)):
     return send_req("chat", body, key)
 
+@router.post("/embeddings")
+@router.post("/v1/embeddings", include_in_schema=False)
+def embeddings(body:dict, key:dict=Depends(require_budget_available)):
+    return send_req("embeddings", body, key)
+
+@router.post("/completions")
+@router.post("/v1/completions", include_in_schema=False)
+def completions(body:dict, key:dict=Depends(require_budget_available)):
+    return send_req("completions", body, key)
+
+"""@router.post("/responses")
+@router.post("/v1/responses", include_in_schema=False)
+def s_responses(body:dict, key:dict=Depends(require_budget_available)):
+    return send_responses("r", body, key)"""

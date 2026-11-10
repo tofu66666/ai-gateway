@@ -4,6 +4,21 @@
 # Refactor pick_model to support real model name and avoid ambiguity errors 
 # At the moment I will suppose that we know alias=real model name + master prompt description
 import json
+# H18IALMOND 22-embeddings 
+# Introduce kind (chat, embedding, completion) in model row in DB
+# Define which kind of model each gateway endpoints accepts
+
+ENDPOINT_KINDS={
+    "chat": {"chat"},
+    "responses":{"chat"}, # For further development spt3
+    "embeddings":{"embedding"},
+    "completions":{"completion"},
+}
+
+# a model row without `kind`(null or old DB) -> Chat model
+def model_kind(row:dict)->str:
+    return row.get("kind") or "chat"
+
 
 def pick_model(name:str, candidates: list[dict])->dict | None:
     for m in candidates:
@@ -148,6 +163,14 @@ def is_usage_only(chunk: dict)->bool:
 def error_event(message:str)->str:
     payload={"error":{"message":message, "type":"provider_error"}}
     return f"data: {json.dumps(payload)}\n\n"
+
+
+def estimate_tokens(texts: list[str])->int:
+    # Roughly 1 token ~= 4 characters.
+    # Only used when the provider does not report usage
+    chars=sum(len(t) for t in texts)
+    return max(1, -(-chars//4)) if chars else 0
+
 
 # H18IALMOND-37: A provider error or rate limit counts against the deployment.
 # Other 4xx mean the client's request was wrong, so the deployment is fine.

@@ -11,6 +11,13 @@ create table if not exists models (
   data_processing_state   text,
   created_at              timestamptz not null default now(),
   prompt                  text,
+
+  -- Which gateway endpoint the model can be used on (H18IALMOND-22):
+  -- chat -> /chat/completions 
+  -- embedding -> /embeddings
+  -- completion -> /completions
+  kind                    text not null default 'chat'
+                            check (kind in ('chat', 'embedding', 'completion')),
   -- How traffic for this alias is shared across its deployments (H18IALMOND-37).
   routing_strategy        text not null default 'round_robin'
                             check (routing_strategy in ('round_robin', 'least_busy'))

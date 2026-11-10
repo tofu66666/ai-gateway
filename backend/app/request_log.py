@@ -35,6 +35,7 @@ def build_record(
     time_to_first_token_ms: int | None=None,
     request_text: str | None=None,
     response_text: str | None=None,
+    deployment_id: str | None=None,
 ) -> dict:
     # Only in case of valid response: status_code<400
     vr=status_code<400
@@ -78,6 +79,9 @@ def build_record(
         record["request_text"]=request_text
     if response_text is not None:
         record["response_text"]=response_text
+    # Record which deployment served it
+    if deployment_id is not None:
+        record["deployment_id"]=str(deployment_id)
     return record 
 
 
@@ -92,6 +96,7 @@ def log_request(
     time_to_first_token_ms: int | None=None,
     request_text: str | None=None,
     response_text: str | None=None,
+    deployment_id: str | None=None,
 ) -> str | None:
     # Request logging and accumulated cost calculation
     req_id=None
@@ -106,6 +111,7 @@ def log_request(
             time_to_first_token_ms=time_to_first_token_ms,
             request_text=request_text,
             response_text=response_text,
+            deployment_id=deployment_id,
         )
         res=supabase.table("requests").insert(record).execute()
         

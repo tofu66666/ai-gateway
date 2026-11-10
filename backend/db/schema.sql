@@ -11,13 +11,56 @@ create table if not exists models (
   data_processing_state   text,
   created_at              timestamptz not null default now(),
   prompt                  text,
+
   -- Which gateway endpoint the model can be used on (H18IALMOND-22):
   -- chat -> /chat/completions 
   -- embedding -> /embeddings
   -- completion -> /completions
   kind                    text not null default 'chat'
-                            check (kind in ('chat', 'embedding', 'completion'))
+                            check (kind in ('chat', 'embedding', 'completion')),
+  -- How traffic for this alias is shared across its deployments (H18IALMOND-37).
+  routing_strategy        text not null default 'round_robin'
+                            check (routing_strategy in ('round_robin', 'least_busy'))
 );
+
+-- Where an alias can really be served from (H18IALMOND-37). A deployment taken
+-- off an alias is disabled, not deleted, so old requests keep pointing at it.
+create table if not exists model_deployments (
+  id           uuid primary key default gen_random_uuid(),
+  model_id     uuid not null references models(id) on delete cascade,
+  name         text not null,
+  provider     text not null,
+  model        text not null,
+  -- Null means the provider's standard URL. Includes the version path, e.g. .../v1.
+  base_url     text,
+  -- Name of the env var holding this deployment's key, never the key itself.
+  -- Null means the provider's shared key.
+  api_key_env  text check (api_key_env ~ '^LLM_KEY_[A-Z0-9_]+$'),
+  position     integer not null default 0,
+  enabled      boolean not null default true,
+  created_at   timestamptz not null default now(),
+  unique (model_id, name)
+);
+
+-- No policies: only the backend's secret key, which bypasses RLS, can reach this.
+alter table model_deployments enable row level security;
+
+-- Every new alias starts with one deployment, so the gateway can always route it.
+create or replace function add_default_deployment()
+returns trigger
+language plpgsql
+as $$
+begin
+  insert into model_deployments (model_id, name, provider, model)
+  values (new.id, 'default', new.provider, new.model);
+  return new;
+end;
+$$;
+
+drop trigger if exists models_add_default_deployment on models;
+create trigger models_add_default_deployment
+  after insert on models
+  for each row execute function add_default_deployment();
 
 create table if not exists teams (
   id                 uuid primary key default gen_random_uuid(),
@@ -93,7 +136,9 @@ create table if not exists requests (
   request_text        text,
   response_text       text,
   key_id              uuid references virtual_keys(id),
-  time_to_first_token integer
+  time_to_first_token integer,
+  -- Null for requests refused before a deployment was chosen.
+  deployment_id       uuid references model_deployments(id)
 );
 
 create table if not exists audits (

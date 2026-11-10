@@ -164,9 +164,17 @@ def error_event(message:str)->str:
     payload={"error":{"message":message, "type":"provider_error"}}
     return f"data: {json.dumps(payload)}\n\n"
 
+
 def estimate_tokens(texts: list[str])->int:
     # Roughly 1 token ~= 4 characters.
     # Only used when the provider does not report usage
     chars=sum(len(t) for t in texts)
     return max(1, -(-chars//4)) if chars else 0
 
+
+# H18IALMOND-37: A provider error or rate limit counts against the deployment.
+# Other 4xx mean the client's request was wrong, so the deployment is fine.
+# Runs after hide_provider_auth_errors, so a bad deployment key counts as a 502.
+
+def is_deployment_failure(status_code: int)->bool:
+    return status_code==429 or status_code>=500

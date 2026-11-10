@@ -33,3 +33,13 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  # Fake provider for load tests. Starts only with: docker compose --profile loadtest up -d
+  stub-provider:
+    profiles: ["loadtest"]
+    build: ./backend
+    command: python -m loadtest.stub_provider
+    environment:
+      STUB_DELAYS: ${STUB_DELAYS:-fast=0.01,slow=0.2}
+    ports:
+      - "9100:9100"

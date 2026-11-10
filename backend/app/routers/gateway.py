@@ -1,3 +1,4 @@
+import math
 import time
 import logging
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app import budget, config, guardrails, request_log
+from app import budget, config, guardrails, load_balancer, request_log
 import json 
 from app import gateway_logic_helper as logic
 from app.providers import call_prov, open_stream, supp_stream_usage
@@ -68,6 +69,19 @@ def get_allowed_models(model_ids: list) -> list[dict]:
         .data 
     ) or []
     return rows
+
+def get_deployments(model_id:str)->list[dict]:
+    # The alias's active deployments, in the order the admin listed them
+    rows=(
+        supabase.table("model_deployments")
+        .select("*")
+        .eq("model_id", str(model_id))
+        .eq("enabled", True)
+        .order("position")
+        .execute()
+        .data
+    )
+    return rows or []
 
 # Check if model exists
 def model_exists(name:str)->bool:
@@ -154,13 +168,13 @@ def ms_since(started: float)->int:
     return int((time.perf_counter()-started)*1000)
 
 # log_and_respond=Second part of chat_completions (declare first here because the first part=send_to_prov use is in the end)
-def log_and_respond(status_code, payload, row, key, started, request_id, request_text=None, usage_estimate=None):
+def log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text=None, usage_estimate=None):
     #Log the request and answer with JSON (use it for non-streaming answer)
     if status_code >= 400:
         new_status, payload=logic.hide_provider_auth_errors(status_code, payload)
         if new_status != status_code:
             logger.warning(
-                "Provider '%s' rejected the gateway's credentials (HTTP %s)", row["provider"], status_code
+                "Provider '%s' rejected the gateway's credentials (HTTP %s)", deployment["provider"], status_code
             )
             status_code=new_status
     log_payload=payload
@@ -168,7 +182,9 @@ def log_and_respond(status_code, payload, row, key, started, request_id, request
         # Some providers (gemini embeddings) does not report usage
         # In that case, log an estimate, return the reply as is
         log_payload = {**payload, "usage": {"prompt_tokens": usage_estimate, "total_tokens": usage_estimate}}
-    
+
+    if logic.is_deployment_failure(status_code):
+        load_balancer.balancer.record_failure(deployment["id"])
     logged_id=request_log.log_request(
         key=key,
         model=row,
@@ -179,6 +195,7 @@ def log_and_respond(status_code, payload, row, key, started, request_id, request
         request_text=request_text,
         # Only when answer is successful => save
         response_text=logic.extract_res_text(payload) if status_code < 400 else None,
+        deployment_id=deployment["id"],
     )
     if logged_id:
         headers={"X-Request-ID": str(logged_id)}
@@ -187,12 +204,12 @@ def log_and_respond(status_code, payload, row, key, started, request_id, request
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 # First part of chat_completions
-def send_to_prov_json(call_endpoint, provider_body, row, key, request_text=None, usage_estimate=None):
+def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, request_text=None, usage_estimate=None):
     # Call the provider and wait for the whole answer
     request_id=str(uuid.uuid4())
     started=time.perf_counter()
     try:
-        upstream = call_prov(row["provider"], call_endpoint, provider_body)
+        upstream = call_prov(deployment, call_endpoint, provider_body)
     # Timeouts(504) and network failures(502)
     except httpx.TimeoutException:
         status_code, payload=504, {"error":{"message": "Provider timed out"}}
@@ -208,13 +225,14 @@ def send_to_prov_json(call_endpoint, provider_body, row, key, request_text=None,
             # For the case that it returns 200 OK or 302 found with a non-JSON file.
             if status_code < 400:
                 status_code = 502
-    return log_and_respond(status_code, payload, row, key, started, request_id, request_text, usage_estimate)    
+    return log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text, usage_estimate)    
 
-def send_to_prov_stream(provider_body, row, key, request_text=None):
+
+def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
     # Sent events when they arrive, then log the finished stream
     request_id=str(uuid.uuid4())
     ck_usage=bool((provider_body.get("stream_options") or {}).get("include_usage"))
-    if not ck_usage and supp_stream_usage(row["provider"]):
+    if not ck_usage and supp_stream_usage(deployment["provider"]):
         # Ask for token spent to the stream to be priced.
         # They are hidden unless the caller asked for them.
         options={**(provider_body.get("stream_options") or {}), "include_usage":True}
@@ -222,11 +240,11 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
     
     started=time.perf_counter()
     try:
-        upstream=open_stream(row["provider"],"chat", provider_body)
+        upstream=open_stream(deployment,"chat", provider_body)
     except httpx.TimeoutException:
-        return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, key, started, request_id, request_text)
+        return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, deployment, key, started, request_id, request_text)
     except httpx.HTTPError:
-        return log_and_respond(502, {"error":{"message": "Could not reach the provider"}}, row, key, started, request_id, request_text)
+        return log_and_respond(502, {"error":{"message": "Could not reach the provider"}}, row, deployment, key, started, request_id, request_text)
 
     if upstream.status_code>=400:
         # The provider refused before streaming start => answer with a normal json error
@@ -237,7 +255,7 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
             payload={"error":{"message": "Provider returned an error"}}
         finally:
             upstream.close()
-        return log_and_respond(status,payload, row, key, started, request_id, request_text)
+        return log_and_respond(status,payload, row, deployment, key, started, request_id, request_text)
 
     def events():
         first_token_ms=None
@@ -292,6 +310,10 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
             raise
         finally: # End stream without error
             upstream.close()
+            # H18IALMOND-37: the deployment stays busy until the stream ends
+            if logic.is_deployment_failure(status_code):
+                load_balancer.balancer.record_failure(deployment["id"])
+            load_balancer.balancer.release(deployment["id"])
             record=dict(
                 key=key,
                 model=row,
@@ -301,7 +323,8 @@ def send_to_prov_stream(provider_body, row, key, request_text=None):
                 request_id=request_id,
                 time_to_first_token_ms=first_token_ms,
                 request_text=request_text,
-                response_text="".join(parts) if status_code<400 else None
+                response_text="".join(parts) if status_code<400 else None,
+                deployment_id=deployment["id"],
             )
             if status_code==499:
                 # Maybe inside the garbage collector: see hangup_logs
@@ -331,6 +354,26 @@ def enforce_guardrails(body:dict, row:dict, key:dict, endpoint:str="chat")->dict
         headers={"X-Request-ID": str(logged_id)} if logged_id else None
         raise HTTPException(400, str(exc), headers=headers) from exc
 
+def pick_deployment(row:dict, key:dict)->dict:
+    # H18IALMOND-37: share the alias across its deployments, skipping any in cooldown
+    try:
+        deployments=get_deployments(row["id"])
+    except Exception as exc:
+        raise HTTPException(503, "Could not look up model deployments") from exc
+    balancer=load_balancer.balancer
+    deployment=balancer.acquire(row["id"], deployments, row.get("routing_strategy"))
+    if deployment is not None:
+        return deployment
+    # Log the refusal; status >= 400 records 0 tokens and 0 cost
+    logged_id=request_log.log_request(
+        key=key, model=row, payload={}, status_code=503, latency_ms=0
+    )
+    headers={"X-Request-ID": str(logged_id)} if logged_id else {}
+    waits=[balancer.cooldown_left(d["id"]) for d in deployments]
+    if waits:
+        headers["Retry-After"]=str(math.ceil(min(waits)))
+    raise HTTPException(503, f"No deployment is available for model '{row['alias']}'", headers=headers)
+
 def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here
     row=resolve_model(body.get("model"), key, endpoint)
@@ -338,17 +381,26 @@ def send_req(endpoint:str, body:dict, key:dict):
     # Take the new message before adding the master prompt
     request_text=logic.extract_req_text(endpoint, body)
 
-    provider_body={**body,"model":row["model"]}
     usage_estimate=None
-    if endpoint=="chat":
-        provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
     if endpoint=="embeddings":
         usage_estimate=logic.estimate_tokens(guardrails.prompt_texts(body))
-    if body.get("stream"):
-        if endpoint!="chat":
-            raise HTTPException(400, "Streaming is only available on /chat/completions")
-        return send_to_prov_stream(provider_body, row, key, request_text)
-    return send_to_prov_json(endpoint, provider_body, row, key, request_text, usage_estimate)
+    if body.get("stream") and endpoint!="chat":
+        raise HTTPException(400, "Streaming is only available on /chat/completions")
+    deployment=pick_deployment(row, key)
+    streaming=False
+    try:
+        provider_body={**body,"model":deployment["model"]}
+        if endpoint=="chat":
+            provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
+        if body.get("stream"):
+            response=send_to_prov_stream(provider_body, row, deployment, key, request_text)
+            # A stream that started releases the deployment itself when it ends
+            streaming=isinstance(response, StreamingResponse)
+            return response
+        return send_to_prov_json(endpoint, provider_body, row, deployment, key, request_text, usage_estimate)
+    finally:
+        if not streaming:
+            load_balancer.balancer.release(deployment["id"])
 
 """def send_responses(endpoint:str, body:dict, key:dict):
     # responses 
@@ -368,6 +420,8 @@ def send_req(endpoint:str, body:dict, key:dict):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return send_to_prov_json("responses", provider_body, row, key, request_text)"""
+
+
 
 @router.post("/chat/completions")
 @router.post("/v1/chat/completions", include_in_schema=False)

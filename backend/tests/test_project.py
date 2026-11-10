@@ -16,6 +16,8 @@ AUTH = {"Authorization": "Bearer good-token"}
 TEAM_ID = "11111111-1111-1111-1111-111111111111"
 OTHER_TEAM_ID = "22222222-2222-2222-2222-222222222222"
 PROJECT_ID = "33333333-3333-3333-3333-333333333333"
+MODEL_A = "44444444-4444-4444-4444-444444444444"
+MODEL_B = "55555555-5555-5555-5555-555555555555"
 PROJECT_ROW = {
     "id": PROJECT_ID,
     "team_id": TEAM_ID,
@@ -302,10 +304,35 @@ def test_team_lead_removes_project_budget(current_user, monkeypatch):
     update.assert_called_once_with(UUID(PROJECT_ID), {"budget_per_month": None})
 
 
-@pytest.mark.parametrize("role", ["admin", "user"])
-def test_admin_and_user_cannot_update_project(current_user, monkeypatch, role):
+@pytest.mark.parametrize("role", ["team_lead", "user"])
+def test_team_owner_with_any_role_can_update_project(current_user, monkeypatch, role):
     current_user["role"] = role
     update = set_patch_project(monkeypatch)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+    )
+
+    assert response.status_code == 200
+    update.assert_called_once()
+
+
+def test_admin_can_update_another_teams_project(current_user, monkeypatch):
+    current_user["role"] = "admin"
+    update = set_patch_project(monkeypatch, owner_id="another-lead")
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+    )
+
+    assert response.status_code == 200
+    update.assert_called_once()
+
+
+@pytest.mark.parametrize("role", ["team_lead", "user"])
+def test_non_owner_cannot_update_project(current_user, monkeypatch, role):
+    current_user["role"] = role
+    update = set_patch_project(monkeypatch, owner_id="another-lead")
 
     response = client.patch(
         f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
@@ -315,15 +342,68 @@ def test_admin_and_user_cannot_update_project(current_user, monkeypatch, role):
     update.assert_not_called()
 
 
-def test_team_lead_cannot_update_another_teams_project(current_user, monkeypatch):
-    current_user["role"] = "team_lead"
-    update = set_patch_project(monkeypatch, owner_id="another-lead")
+def test_owner_replaces_project_models(current_user, monkeypatch):
+    update = set_patch_project(
+        monkeypatch, updated={**PROJECT_ROW, "model_ids": [MODEL_A, MODEL_B]}
+    )
+    lookup = MagicMock(return_value=[{"id": MODEL_A}, {"id": MODEL_B}])
+    monkeypatch.setattr(project, "get_model_rows", lookup)
 
     response = client.patch(
-        f"/projects/{PROJECT_ID}", headers=AUTH, json={"budget_per_month": 50}
+        f"/projects/{PROJECT_ID}",
+        headers=AUTH,
+        json={"model_ids": [MODEL_A, MODEL_B, MODEL_A]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model_ids"] == [MODEL_A, MODEL_B]
+    lookup.assert_called_once_with([UUID(MODEL_A), UUID(MODEL_B)])
+    update.assert_called_once_with(UUID(PROJECT_ID), {"model_ids": [MODEL_A, MODEL_B]})
+
+
+def test_unknown_model_id_does_not_update_project(current_user, monkeypatch):
+    update = set_patch_project(monkeypatch)
+    monkeypatch.setattr(project, "get_model_rows", lambda model_ids: [{"id": MODEL_A}])
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}",
+        headers=AUTH,
+        json={"model_ids": [MODEL_A, MODEL_B], "budget_per_month": 50},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "One or more model IDs do not exist"}
+    update.assert_not_called()
+
+
+def test_non_owner_is_refused_before_models_are_checked(current_user, monkeypatch):
+    update = set_patch_project(monkeypatch, owner_id="another-lead")
+    lookup = MagicMock()
+    monkeypatch.setattr(project, "get_model_rows", lookup)
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"model_ids": [MODEL_A]}
     )
 
     assert response.status_code == 403
+    lookup.assert_not_called()
+    update.assert_not_called()
+
+
+def test_model_lookup_failure_returns_safe_error(current_user, monkeypatch):
+    update = set_patch_project(monkeypatch)
+    monkeypatch.setattr(
+        project,
+        "get_model_rows",
+        MagicMock(side_effect=RuntimeError("database detail")),
+    )
+
+    response = client.patch(
+        f"/projects/{PROJECT_ID}", headers=AUTH, json={"model_ids": [MODEL_A]}
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"message": "Failed to validate models"}
     update.assert_not_called()
 
 
@@ -346,6 +426,10 @@ def test_patch_unknown_project_returns_not_found(current_user, monkeypatch):
         ({"warning_threshold": 0}, 422),
         ({"warning_threshold": 1.01}, 422),
         ({"budget_per_month": -0.01}, 422),
+        ({"model_ids": []}, 400),
+        ({"model_ids": None}, 400),
+        ({"model_ids": ["not-a-uuid"]}, 422),
+        ({"model_ids": MODEL_A}, 422),
     ],
 )
 def test_patch_project_rejects_invalid_payload(

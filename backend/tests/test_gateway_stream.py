@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app import guardrails, load_balancer, request_log
+from app import guardrails, load_balancer, request_log, retry_policy
 from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
@@ -51,6 +51,7 @@ class FakeStream:
 
 @pytest.fixture
 def stream_setup(monkeypatch):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     monkeypatch.setitem(app.dependency_overrides, gateway.require_budget_available, lambda: KEY)
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
@@ -63,8 +64,8 @@ def stream_setup(monkeypatch):
     sent={}
 
     def provide(stream=None, error=None):
-        def fake_open(deployment, endpoint, body):
-            sent.update(deployment=deployment, endpoint=endpoint, body=body)
+        def fake_open(deployment, endpoint, body, timeout=None):
+            sent.update(deployment=deployment, endpoint=endpoint, body=body, timeout=timeout)
             if error:
                 raise error
             return stream

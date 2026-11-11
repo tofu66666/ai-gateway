@@ -14,6 +14,7 @@ from app import budget, config, guardrails, load_balancer, request_log
 import json 
 from app import gateway_logic_helper as logic
 from app.providers import call_prov, open_stream, supp_stream_usage
+from app.retry_policy import call_with_retries, policy_from_row
 from app.routers.db import supabase
 from app.routers.virtual_key import validate_virtual_key, hash_key
 
@@ -168,7 +169,7 @@ def ms_since(started: float)->int:
     return int((time.perf_counter()-started)*1000)
 
 # log_and_respond=Second part of chat_completions (declare first here because the first part=send_to_prov use is in the end)
-def log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text=None, usage_estimate=None):
+def log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text=None, usage_estimate=None, attempt_count=1):
     #Log the request and answer with JSON (use it for non-streaming answer)
     if status_code >= 400:
         new_status, payload=logic.hide_provider_auth_errors(status_code, payload)
@@ -196,6 +197,7 @@ def log_and_respond(status_code, payload, row, deployment, key, started, request
         # Only when answer is successful => save
         response_text=logic.extract_res_text(payload) if status_code < 400 else None,
         deployment_id=deployment["id"],
+        attempt_count=attempt_count,
     )
     if logged_id:
         headers={"X-Request-ID": str(logged_id)}
@@ -208,12 +210,15 @@ def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, reques
     # Call the provider and wait for the whole answer
     request_id=str(uuid.uuid4())
     started=time.perf_counter()
-    try:
-        upstream = call_prov(deployment, call_endpoint, provider_body)
+    policy=policy_from_row(row)
+    upstream, error, attempts=call_with_retries(
+        lambda: call_prov(deployment, call_endpoint, provider_body, timeout=policy["timeout_seconds"]),
+        policy,
+    )
     # Timeouts(504) and network failures(502)
-    except httpx.TimeoutException:
+    if isinstance(error, httpx.TimeoutException):
         status_code, payload=504, {"error":{"message": "Provider timed out"}}
-    except httpx.HTTPError:
+    elif error is not None:
         status_code, payload=502, {"error":{"message": "Could not reach the provider"}}
     else:
         status_code=upstream.status_code
@@ -225,7 +230,7 @@ def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, reques
             # For the case that it returns 200 OK or 302 found with a non-JSON file.
             if status_code < 400:
                 status_code = 502
-    return log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text, usage_estimate)    
+    return log_and_respond(status_code, payload, row, deployment, key, started, request_id, request_text, usage_estimate, attempt_count=attempts)
 
 
 def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
@@ -239,12 +244,15 @@ def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
         provider_body={**provider_body, "stream_options":options}
     
     started=time.perf_counter()
-    try:
-        upstream=open_stream(deployment,"chat", provider_body)
-    except httpx.TimeoutException:
-        return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, deployment, key, started, request_id, request_text)
-    except httpx.HTTPError:
-        return log_and_respond(502, {"error":{"message": "Could not reach the provider"}}, row, deployment, key, started, request_id, request_text)
+    policy=policy_from_row(row)
+    upstream, error, attempts=call_with_retries(
+        lambda: open_stream(deployment, "chat", provider_body, timeout=policy["timeout_seconds"]),
+        policy,
+    )
+    if isinstance(error, httpx.TimeoutException):
+        return log_and_respond(504, {"error":{"message": "Provider timed out"}}, row, deployment, key, started, request_id, request_text, attempt_count=attempts)
+    if error is not None:
+        return log_and_respond(502, {"error":{"message": "Could not reach the provider"}}, row, deployment, key, started, request_id, request_text, attempt_count=attempts)
 
     if upstream.status_code>=400:
         # The provider refused before streaming start => answer with a normal json error
@@ -255,7 +263,7 @@ def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
             payload={"error":{"message": "Provider returned an error"}}
         finally:
             upstream.close()
-        return log_and_respond(status,payload, row, deployment, key, started, request_id, request_text)
+        return log_and_respond(status,payload, row, deployment, key, started, request_id, request_text, attempt_count=attempts)
 
     def events():
         first_token_ms=None
@@ -325,6 +333,7 @@ def send_to_prov_stream(provider_body, row, deployment, key, request_text=None):
                 request_text=request_text,
                 response_text="".join(parts) if status_code<400 else None,
                 deployment_id=deployment["id"],
+                attempt_count=attempts,
             )
             if status_code==499:
                 # Maybe inside the garbage collector: see hangup_logs

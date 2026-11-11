@@ -8,7 +8,7 @@ import pytest
 import httpx
 
 from app.main import app
-from app import budget, guardrails, load_balancer, request_log
+from app import budget, guardrails, load_balancer, request_log, retry_policy
 from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
@@ -29,6 +29,7 @@ def one_deployment(model):
     return {"id":"d1", "provider":model["provider"], "model":model["model"], "base_url":None, "api_key_env":None}
 
 def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS, deployments=None):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     # Skip the key check
     monkeypatch.setitem(
         app.dependency_overrides, gateway.require_budget_available, lambda: key
@@ -351,6 +352,7 @@ def test_logs_request_success(monkeypatch):
     assert sent["model"]==MODEL
     assert sent["payload"]==USAGE_REPLY
     assert sent["status_code"]==200
+    assert sent["attempt_count"]==1
     assert isinstance(sent["latency_ms"], int) and sent["latency_ms"]>=0
 
 # Provider errors: logged with status and no cost
@@ -484,6 +486,7 @@ def test_logs_error_res_with_req_id_no_model(monkeypatch):
 
 @pytest.fixture
 def log_setup(monkeypatch):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     monkeypatch.setitem(app.dependency_overrides, gateway.require_budget_available, lambda: KEY)
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
@@ -504,7 +507,7 @@ def log_setup(monkeypatch):
 def test_json_req_log_req_res_text(log_setup, monkeypatch):
     logged=log_setup
     reply={"choices":[{"message":{"role":"assistant", "content": "hello"}}]}
-    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(200, json=reply))
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b, timeout=None: httpx.Response(200, json=reply))
     r=client.post("/chat/completions", headers=AUTH, json={
         "model":"mq",
         "messages":[{"role":"user","content":"q1"},
@@ -517,7 +520,7 @@ def test_json_req_log_req_res_text(log_setup, monkeypatch):
 
 def test_json_error_no_response(log_setup, monkeypatch):
     logged=log_setup
-    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(500, json={"error": {"message": "x"}}))
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b, timeout=None: httpx.Response(500, json={"error": {"message": "x"}}))
     client.post("/chat/completions", headers=AUTH, json={
         "model":"mq",
         "messages":[{"role":"user","content":"q1"}],
@@ -531,7 +534,7 @@ def test_master_prompt_not_saved_as_request_text(log_setup, monkeypatch):
     logged=log_setup
     monkeypatch.setitem(MODEL, "prompt", "Be brief")
     sent={}
-    def fake_call(p,e,b):
+    def fake_call(p,e,b,timeout=None):
         sent["body"]=b
         return httpx.Response(200, json={"choices":[{"message":{"content":"ok"}}]})
     

@@ -11,6 +11,25 @@ def usage(prompt, completion):
 def test_get_usage():
     assert request_log.get_usage(usage(1000,500))==(1000,500)
 
+
+@pytest.mark.parametrize("attempts", [0, 1, 4])
+def test_attempt_count_is_saved_without_multiplying_cost(monkeypatch, attempts):
+    fake = MagicMock()
+    fake.table.return_value.insert.return_value.execute.return_value.data = [{"id": "r"}]
+    monkeypatch.setattr(request_log, "supabase", fake)
+    request_log.log_request(
+        key=KEY, model=MODEL, payload=usage(1000, 500), status_code=200 if attempts else 503,
+        latency_ms=50, attempt_count=attempts,
+    )
+    record = fake.table.return_value.insert.call_args.args[0]
+    assert record["attempt_count"] == attempts
+    assert record["cost"] == pytest.approx(0.0003 if attempts else 0)
+    fake.table.return_value.insert.assert_called_once()
+    if attempts:
+        fake.rpc.assert_called_once_with("add_spend", {"p_id": "p1", "amount": record["cost"]})
+    else:
+        fake.rpc.assert_not_called()
+
 # Every types are wrong: get usage=(0,0)
 @pytest.mark.parametrize(
     "payload",

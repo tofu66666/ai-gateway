@@ -349,7 +349,7 @@ def enforce_guardrails(body:dict, row:dict, key:dict, endpoint:str="chat")->dict
     except guardrails.GuardrailViolation as exc:
         # Log the blocked attempt; status >= 400 records 0 tokens and 0 cost
         logged_id=request_log.log_request(
-            key=key, model=row, payload={}, status_code=400, latency_ms=0
+            key=key, model=row, payload={}, status_code=400, latency_ms=0, attempt_count=0
         )
         headers={"X-Request-ID": str(logged_id)} if logged_id else None
         raise HTTPException(400, str(exc), headers=headers) from exc
@@ -366,7 +366,7 @@ def pick_deployment(row:dict, key:dict)->dict:
         return deployment
     # Log the refusal; status >= 400 records 0 tokens and 0 cost
     logged_id=request_log.log_request(
-        key=key, model=row, payload={}, status_code=503, latency_ms=0
+        key=key, model=row, payload={}, status_code=503, latency_ms=0, attempt_count=0
     )
     headers={"X-Request-ID": str(logged_id)} if logged_id else {}
     waits=[balancer.cooldown_left(d["id"]) for d in deployments]

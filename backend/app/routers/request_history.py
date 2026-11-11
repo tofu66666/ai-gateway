@@ -8,7 +8,7 @@ router=APIRouter(tags=["requests"])
 # get /requests
 
 REQUEST_COLUMNS=(
-    "id, project_id, model_id, user_id, input_tokens, output_tokens, cost, status, latency, created_at"
+    "id, project_id, model_id, user_id, input_tokens, output_tokens, cost, status, latency, created_at, attempt_count"
 )
 
 @router.get("/requests")

@@ -57,7 +57,7 @@ def test_blocked_request_logged_at_zero_cost(monkeypatch):
     chat("secret")
 
     assert logged == [
-        {"key": KEY, "model": MODEL, "payload": {}, "status_code": 400, "latency_ms": 0}
+        {"key": KEY, "model": MODEL, "payload": {}, "status_code": 400, "latency_ms": 0, "attempt_count": 0}
     ]
 
 

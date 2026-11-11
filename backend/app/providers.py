@@ -101,14 +101,14 @@ def _prov_info(deployment:dict, endpoint: str)->tuple[str,dict,int]:
     
     return url+path, headers, cfg.get("timeout", DEFAULT_TIMEOUT)
     
-def call_prov(deployment: dict, endpoint:str, body: dict) -> httpx.Response:
-    url, headers, timeout=_prov_info(deployment, endpoint)
+def call_prov(deployment: dict, endpoint:str, body: dict, timeout: float | None=None) -> httpx.Response:
+    url, headers, default_timeout=_prov_info(deployment, endpoint)
     
     return httpx.post(
         url,
         json=body,
         headers=headers,
-        timeout=timeout,
+        timeout=default_timeout if timeout is None else timeout,
     )    
 
 # For streaming
@@ -135,10 +135,10 @@ class OpenStream:
         self._response.close()
         self._client.close()
 
-def open_stream(deployment:dict, endpoint:str, body: dict)-> OpenStream:
+def open_stream(deployment:dict, endpoint:str, body: dict, timeout: float | None=None)-> OpenStream:
     # Send the request and return as soon as the provider starts answering
-    url, headers, timeout=_prov_info(deployment, endpoint)
-    client=httpx.Client(timeout=timeout)
+    url, headers, default_timeout=_prov_info(deployment, endpoint)
+    client=httpx.Client(timeout=default_timeout if timeout is None else timeout)
     try:
         request=client.build_request("POST", url, json=body, headers=headers)
         response=client.send(request, stream=True)

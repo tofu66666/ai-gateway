@@ -3,6 +3,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import config, providers
+from unittest.mock import MagicMock
 
 @pytest.fixture
 def sent(monkeypatch):
@@ -16,6 +17,21 @@ def sent(monkeypatch):
     return record
 
 BODY={"model":"m", "messages":[]}
+
+
+@pytest.mark.parametrize("provider", ["google", "ollama"])
+def test_alias_timeout_overrides_provider_default(sent, provider):
+    providers.call_prov({"provider": provider}, "chat", BODY, timeout=12.5)
+    assert sent["timeout"] == 12.5
+
+
+def test_stream_uses_alias_timeout(monkeypatch):
+    factory = MagicMock()
+    monkeypatch.setattr(providers.httpx, "Client", factory)
+    stream = providers.open_stream({"provider": "ollama"}, "chat", BODY, timeout=30)
+    factory.assert_called_once_with(timeout=30)
+    stream.close()
+    factory.return_value.close.assert_called_once()
 
 def test_googel_chat_url_and_key(monkeypatch, sent):
     monkeypatch.setattr(config, "GEMINI_API_KEY","g-key")

@@ -30,6 +30,10 @@ def test_read_and_save_policy(db):
     db.select.assert_called_once_with(POLICY_COLUMNS)
     assert client.put(URL, json=DEFAULT_POLICY).json() == DEFAULT_POLICY
     db.update.assert_called_once_with(DEFAULT_POLICY)
+    policy = {"retry_count": 0, "retry_backoff_seconds": [], "timeout_seconds": 90}
+    db.update.return_value.eq.return_value.execute.return_value.data = [policy]
+    assert client.put(URL, json=policy).json() == policy
+    db.update.assert_called_with(policy)
 
 
 @pytest.mark.parametrize("method", ["get", "put"])
@@ -55,9 +59,3 @@ def test_missing_model(db):
     db.update.return_value.eq.return_value.execute.return_value.data = []
     assert client.get(URL).status_code == 404
     assert client.put(URL, json=DEFAULT_POLICY).status_code == 404
-
-
-def test_disabled_retries_and_custom_timeout(db):
-    policy = {"retry_count": 0, "retry_backoff_seconds": [], "timeout_seconds": 90}
-    db.update.return_value.eq.return_value.execute.return_value.data = [policy]
-    assert client.put(URL, json=policy).json() == policy

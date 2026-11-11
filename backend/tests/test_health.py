@@ -18,7 +18,7 @@ def test_client_import_fails_when_no_supabase():
             assert True
 
 
-def test_health_shows_cooldown_and_recovery(monkeypatch):
+def test_health_reports_cooldown_recovery_and_database_failure(monkeypatch):
     now = [100.0]
     balancer = LoadBalancer(clock=lambda: now[0])
     monkeypatch.setattr(load_balancer, "balancer", balancer)
@@ -42,12 +42,7 @@ def test_health_shows_cooldown_and_recovery(monkeypatch):
     fake.table.return_value.select.return_value.eq.assert_called_with("enabled", True)
     now[0] += 60
     assert client.get("/health").json()["cooling_deployments"] == []
-
-
-def test_health_still_reports_database_failure(monkeypatch):
-    fake = MagicMock()
     fake.table.side_effect = RuntimeError("offline")
-    monkeypatch.setattr(health, "supabase", fake)
-    response = TestClient(app).get("/health")
+    response = client.get("/health")
     assert response.status_code == 500
     assert response.json()["detail"]["status"] == "error - database not reachable"

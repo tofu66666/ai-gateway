@@ -120,11 +120,6 @@ docker compose exec backend python loadtest/split_test.py --key mq-k_... --model
 
 ### Alias retries (H18IALMOND-23)
 
-Before running this version against an existing deployment database, apply
-`backend/db/migrations/001_resilience.sql` in Supabase's SQL editor. It assumes
-the H18IALMOND-37 deployment schema is already installed. New databases use
-`backend/db/schema.sql`. Historical requests keep a null `attempt_count`.
-
 Admins read or replace an alias's complete policy with
 `GET /models/{id}/resilience` and `PUT /models/{id}/resilience`:
 

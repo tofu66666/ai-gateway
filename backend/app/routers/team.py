@@ -209,7 +209,8 @@ def change_owner(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """
-    Change the owner of a team. Only the current owner or an admin can change the owner.
+    Change the owner of a team. Only the current owner or an admin can change the owner,
+    and the new owner must already be a member of the team.
     Returns the team name and new owner_id.
     """
     user_id = current_user.id
@@ -248,6 +249,10 @@ def change_owner(
             return {
                 "message": "Forbidden: only the current owner or an admin can change the owner"
             }
+
+    if not is_team_member(payload.new_owner_id, payload.team_id):
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return {"message": "New owner must be a member of the team"}
 
     try:
         supabase.table("teams").update({"owner_id": payload.new_owner_id}).eq(

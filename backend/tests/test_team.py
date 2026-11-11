@@ -279,6 +279,41 @@ def test_non_owner_cannot_change_owner(db, monkeypatch):
     db["supabase"].table.return_value.update.assert_not_called()
 
 
+def set_owner_change(db, monkeypatch, *, new_owner_is_member):
+    monkeypatch.setattr(team, "get_user_role", lambda user_id: "member")
+    membership = MagicMock(return_value=new_owner_is_member)
+    monkeypatch.setattr(team, "is_team_member", membership)
+    select = db["supabase"].table.return_value.select.return_value
+    select.eq.return_value.execute.return_value = SimpleNamespace(data=[{"name": "Alpha"}])
+    # No clashing team for the new owner, then the caller is found as the owner.
+    select.eq.return_value.eq.return_value.execute.side_effect = [
+        SimpleNamespace(data=[]),
+        SimpleNamespace(data=[{"owner_id": "lead-1"}]),
+    ]
+    return membership
+
+
+def test_owner_can_hand_team_to_a_member(db, monkeypatch):
+    membership = set_owner_change(db, monkeypatch, new_owner_is_member=True)
+
+    response = call("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"})
+
+    assert response.status_code == 200
+    assert response.json()["new_owner_id"] == "user-2"
+    membership.assert_called_once_with("user-2", "team-1")
+    db["supabase"].table.return_value.update.assert_called_once_with({"owner_id": "user-2"})
+
+
+def test_owner_cannot_hand_team_to_a_non_member(db, monkeypatch):
+    set_owner_change(db, monkeypatch, new_owner_is_member=False)
+
+    response = call("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"})
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "New owner must be a member of the team"}
+    db["supabase"].table.return_value.update.assert_not_called()
+
+
 def set_team(db, owner_id, mappings):
     # The owner lookup runs first, then the team's membership rows.
     by_one_field = db["supabase"].table.return_value.select.return_value.eq

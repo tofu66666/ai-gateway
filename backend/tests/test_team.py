@@ -302,15 +302,33 @@ def test_owner_can_hand_team_to_a_member(db, monkeypatch):
     assert response.json()["new_owner_id"] == "user-2"
     membership.assert_called_once_with("user-2", "team-1")
     db["supabase"].table.return_value.update.assert_called_once_with({"owner_id": "user-2"})
+    # Only the owner change is audited; no membership row is added.
+    inserts = [c.args[0] for c in db["supabase"].table.return_value.insert.call_args_list]
+    assert [row["action"] for row in inserts] == ["team_modify_owner"]
 
 
-def test_owner_cannot_hand_team_to_a_non_member(db, monkeypatch):
+def test_non_member_new_owner_is_added_to_the_team(db, monkeypatch):
     set_owner_change(db, monkeypatch, new_owner_is_member=False)
 
     response = call("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"})
 
-    assert response.status_code == 400
-    assert response.json() == {"message": "New owner must be a member of the team"}
+    assert response.status_code == 200
+    inserts = [c.args[0] for c in db["supabase"].table.return_value.insert.call_args_list]
+    assert inserts[0] == {"user_id": "user-2", "team_id": "team-1", "can_create_key": True}
+    assert inserts[1]["action"] == "team_add_user"
+    assert inserts[1]["details"] == {"user_id": "user-2", "can_create_key": True}
+    db["supabase"].table.return_value.update.assert_called_once_with({"owner_id": "user-2"})
+
+
+def test_owner_is_unchanged_if_adding_new_owner_to_team_fails(db, monkeypatch):
+    set_owner_change(db, monkeypatch, new_owner_is_member=False)
+    insert = db["supabase"].table.return_value.insert.return_value
+    insert.execute.side_effect = Exception("database down")
+
+    response = call("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"})
+
+    assert response.status_code == 500
+    assert response.json() == {"message": "Failed to add new owner to the team"}
     db["supabase"].table.return_value.update.assert_not_called()
 
 

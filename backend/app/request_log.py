@@ -36,6 +36,7 @@ def build_record(
     request_text: str | None=None,
     response_text: str | None=None,
     deployment_id: str | None=None,
+    attempt_count: int | None=None,
 ) -> dict:
     # Only in case of valid response: status_code<400
     vr=status_code<400
@@ -82,6 +83,8 @@ def build_record(
     # Record which deployment served it
     if deployment_id is not None:
         record["deployment_id"]=str(deployment_id)
+    if attempt_count is not None:
+        record["attempt_count"]=attempt_count
     return record 
 
 
@@ -97,6 +100,7 @@ def log_request(
     request_text: str | None=None,
     response_text: str | None=None,
     deployment_id: str | None=None,
+    attempt_count: int | None=None,
 ) -> str | None:
     # Request logging and accumulated cost calculation
     req_id=None
@@ -112,6 +116,7 @@ def log_request(
             request_text=request_text,
             response_text=response_text,
             deployment_id=deployment_id,
+            attempt_count=attempt_count,
         )
         res=supabase.table("requests").insert(record).execute()
         

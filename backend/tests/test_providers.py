@@ -3,6 +3,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import config, providers
+from unittest.mock import MagicMock
 
 @pytest.fixture
 def sent(monkeypatch):
@@ -17,6 +18,15 @@ def sent(monkeypatch):
 
 BODY={"model":"m", "messages":[]}
 
+
+def test_stream_uses_alias_timeout(monkeypatch):
+    factory = MagicMock()
+    monkeypatch.setattr(providers.httpx, "Client", factory)
+    stream = providers.open_stream({"provider": "ollama"}, "chat", BODY, timeout=30)
+    factory.assert_called_once_with(timeout=30)
+    stream.close()
+    factory.return_value.close.assert_called_once()
+
 def test_googel_chat_url_and_key(monkeypatch, sent):
     monkeypatch.setattr(config, "GEMINI_API_KEY","g-key")
 
@@ -26,6 +36,8 @@ def test_googel_chat_url_and_key(monkeypatch, sent):
     assert sent["headers"]=={"Authorization": "Bearer g-key"}
     assert sent["json"]==BODY
     assert sent["timeout"]==60
+    providers.call_prov({"provider":"google"}, "chat", BODY, timeout=12.5)
+    assert sent["timeout"]==12.5
 
 def test_openai_chat_url_and_key(monkeypatch, sent):
     monkeypatch.setattr(config, "OPENAI_API_KEY","o-key")
@@ -53,6 +65,8 @@ def test_ollama_url_ignore_slash_and_send_no_key(monkeypatch,sent,base):
     assert sent["url"]=="http://localhost:11434/v1/chat/completions"
     assert sent["headers"]=={}
     assert sent["timeout"]==180 # Slow for the first request until model loads
+    providers.call_prov({"provider":"ollama"}, "chat", BODY, timeout=12.5)
+    assert sent["timeout"]==12.5
 
 def test_missing_key_sends_no_auth_header(monkeypatch,sent):
     monkeypatch.setattr(config, "OPENAI_API_KEY","")

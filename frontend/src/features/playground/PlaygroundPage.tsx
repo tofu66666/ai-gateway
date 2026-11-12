@@ -1,12 +1,35 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CircleAlert, Send, Square } from 'lucide-react'
+import {
+  CircleAlert,
+  MessageSquarePlus,
+  Send,
+  Square,
+  Trash2,
+} from 'lucide-react'
 import { Link } from 'react-router'
 
-import { GatewayError, sendChat, streamChat } from '@/api/gateway'
+import {
+  GatewayError,
+  sendChat,
+  streamChat,
+  type ChatMessage,
+} from '@/api/gateway'
 import { queryKeys, useKeys, useModels, useProjects } from '@/api/hooks'
 import type { Model } from '@/api/projects'
+import { useCurrentUser } from '@/auth/useAuth'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -31,22 +54,42 @@ import { hasMasterPrompt } from '@/features/models/masterPrompt'
 import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { requestCost } from '@/lib/cost'
-import { formatMoney } from '@/lib/format'
+import { formatDate, formatMoney } from '@/lib/format'
+import { ChatTranscript } from './ChatTranscript'
+import {
+  chatTotals,
+  KEEP_CHATS,
+  KEEP_DAYS,
+  loadChats,
+  messagesOf,
+  saveChats,
+  titleOf,
+  type Answer,
+  type Chat,
+  type Turn,
+} from './conversations'
 import { CreateKeyDialog } from './CreateKeyDialog'
 import { checkKey, KEY_PREFIX_LENGTH, type KeyCheck } from './keyModels'
 
 type Sent = {
+  // The chat the prompt belongs to; a new chat gets its id with its first
+  // prompt and is stored once the first answer arrives.
+  chatId: string
   model: Model
   virtualKey: string
   prompt: string
+  // Every earlier turn, then the prompt.
+  messages: ChatMessage[]
   stream: boolean
 }
 
 // H18IALMOND-11: the key decides the project, so the gateway refuses a model
 // that project does not allow. H18IALMOND-21: the answer can stream in.
 // H18IALMOND-63: the key comes first, and the model list shows only the
-// models it may use.
+// models it may use. H18IALMOND-62: a chat goes on over several turns, and
+// chats are kept in this browser.
 export function PlaygroundPage() {
+  const user = useCurrentUser()
   const queryClient = useQueryClient()
   const models = useModels()
   const keys = useKeys()
@@ -58,6 +101,11 @@ export function PlaygroundPage() {
   // The answer so far while it streams in; it stays if the stream fails.
   const [liveText, setLiveText] = useState('')
   const stop = useRef<AbortController | null>(null)
+  const [chats, setChats] = useState(() => loadChats(user.id))
+  const [chatId, setChatId] = useState<string | null>(null)
+  // false once the browser refused to store the chats.
+  const [stored, setStored] = useState(true)
+  const transcript = useRef<HTMLDivElement>(null)
   // null until the keys, projects and models have loaded.
   const check =
     keys.data && projects.data && models.data
@@ -66,32 +114,157 @@ export function PlaygroundPage() {
   const choices = check?.found === 'mine' ? check.models : (models.data ?? [])
   // A model the key may not use drops out instead of being sent and refused.
   const model = choices.find((candidate) => candidate.id === modelId)
+  const chat = chats.find((candidate) => candidate.id === chatId) ?? null
+  const turns = chat?.turns ?? []
+
+  function storeChats(next: Chat[]) {
+    setChats(next)
+    setStored(saveChats(user.id, next))
+  }
+
+  // A prompt that got no answer goes back into the box, unless something new
+  // was typed meanwhile.
+  function giveBack(text: string) {
+    setPrompt((current) => (current.trim() ? current : text))
+  }
 
   const send = useMutation({
     mutationFn: (request: Sent) => {
       if (!request.stream) {
-        return sendChat(request.virtualKey, request.model.alias, request.prompt)
+        return sendChat(
+          request.virtualKey,
+          request.model.alias,
+          request.messages,
+        )
       }
       const controller = new AbortController()
       stop.current = controller
       return streamChat(
         request.virtualKey,
         request.model.alias,
-        request.prompt,
+        request.messages,
         { onText: setLiveText, signal: controller.signal },
       )
     },
+    // When the prompt was sent, kept with it in the chat.
+    onMutate: () => ({ sentAt: new Date().toISOString() }),
+    // Chats cannot be switched while a request runs, so `chats` is current.
+    onSuccess: (reply, request, { sentAt }) => {
+      if (reply.stopped && !reply.content.trim()) {
+        // Stopped before any text arrived: nothing to keep.
+        giveBack(request.prompt)
+        return
+      }
+      const answeredAt = new Date().toISOString()
+      const answer: Answer = {
+        inputTokens: reply.inputTokens,
+        outputTokens: reply.outputTokens,
+        latencyMs: reply.latencyMs,
+        firstTokenMs: reply.firstTokenMs,
+        stopped: reply.stopped,
+        requestId: reply.requestId,
+        model: request.model.alias,
+        streamed: request.stream,
+        cost:
+          reply.inputTokens === null || reply.outputTokens === null
+            ? null
+            : requestCost(request.model, reply.inputTokens, reply.outputTokens),
+      }
+      const added: Turn[] = [
+        { role: 'user', content: request.prompt, at: sentAt },
+        { role: 'assistant', content: reply.content, at: answeredAt, answer },
+      ]
+      const earlier = chats.find((candidate) => candidate.id === request.chatId)
+      const updated: Chat = earlier
+        ? {
+            ...earlier,
+            modelId: request.model.id,
+            updatedAt: answeredAt,
+            turns: [...earlier.turns, ...added],
+          }
+        : {
+            id: request.chatId,
+            title: titleOf(request.prompt),
+            modelId: request.model.id,
+            createdAt: sentAt,
+            updatedAt: answeredAt,
+            turns: added,
+          }
+      storeChats([
+        updated,
+        ...chats.filter((candidate) => candidate.id !== request.chatId),
+      ])
+    },
+    onError: (_error, request) => giveBack(request.prompt),
   })
   const sent = send.variables
-  const reply = send.data
   const streaming = send.isPending && sent?.stream === true
-  const text = reply ? reply.content : liveText
+  const pending =
+    send.isPending && sent
+      ? { prompt: sent.prompt, text: liveText, streaming }
+      : null
+  const totals = chatTotals(turns)
+  const answers = turns.filter((turn) => turn.role === 'assistant').length
+
+  // Keep the newest turn in view while the chat grows.
+  useEffect(() => {
+    const box = transcript.current
+    if (box) {
+      box.scrollTop = box.scrollHeight
+    }
+  }, [turns.length, liveText, send.isPending, chatId])
 
   function handleSend() {
-    if (model) {
-      setLiveText('')
-      send.mutate({ model, virtualKey: virtualKey.trim(), prompt, stream })
+    const text = prompt.trim()
+    if (!model || !text || send.isPending) {
+      return
     }
+    const id = chat?.id ?? crypto.randomUUID()
+    setChatId(id)
+    setLiveText('')
+    setPrompt('')
+    send.mutate({
+      chatId: id,
+      model,
+      virtualKey: virtualKey.trim(),
+      prompt: text,
+      messages: [...messagesOf(turns), { role: 'user', content: text }],
+      stream,
+    })
+  }
+
+  // Enter sends and Shift+Enter starts a new line. Enter while an input
+  // method is still composing (Chinese, Japanese) does not send.
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      event.key === 'Enter' &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault()
+      handleSend()
+    }
+  }
+
+  function startNewChat() {
+    setChatId(null)
+    setLiveText('')
+    send.reset()
+  }
+
+  function openChat(id: string) {
+    const opened = chats.find((candidate) => candidate.id === id)
+    setChatId(id)
+    if (opened?.modelId) {
+      setModelId(opened.modelId)
+    }
+    setLiveText('')
+    send.reset()
+  }
+
+  function deleteChat() {
+    storeChats(chats.filter((candidate) => candidate.id !== chatId))
+    startNewChat()
   }
 
   return (
@@ -99,16 +272,17 @@ export function PlaygroundPage() {
       <div>
         <h1 className="text-2xl font-semibold">Playground</h1>
         <p className="text-muted-foreground">
-          Send a request to an AI model and view its response.
+          Chat with an AI model through the gateway and see what each answer
+          costs.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>New Request</CardTitle>
+          <CardTitle>Key and model</CardTitle>
           <CardDescription>
-            Enter your virtual key, then pick one of the models it can use and
-            write a prompt. The key's project pays for the call.
+            Enter your virtual key, then pick one of the models it can use. The
+            key's project pays for every message.
           </CardDescription>
           <CardAction>
             <CreateKeyDialog
@@ -161,7 +335,7 @@ export function PlaygroundPage() {
             {model && hasMasterPrompt(model) && (
               <p className="text-xs text-muted-foreground">
                 An admin set a master prompt for this model: it goes before your
-                prompt and counts as input tokens.
+                messages and counts as input tokens.
               </p>
             )}
             {models.isError && (
@@ -169,125 +343,177 @@ export function PlaygroundPage() {
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label>Prompt</Label>
-            <Textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Enter your prompt..."
-              className="min-h-32"
+          <div className="flex items-center gap-2">
+            <Switch
+              id="stream"
+              checked={stream}
+              onCheckedChange={setStream}
+              disabled={send.isPending}
             />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="stream"
-                checked={stream}
-                onCheckedChange={setStream}
-                disabled={send.isPending}
-              />
-              <Label htmlFor="stream">Stream the response</Label>
-            </div>
-            <div className="flex gap-2">
-              {streaming && (
-                <Button variant="outline" onClick={() => stop.current?.abort()}>
-                  <Square />
-                  Stop
-                </Button>
-              )}
-              <Button
-                onClick={handleSend}
-                disabled={
-                  send.isPending ||
-                  !model ||
-                  !virtualKey.trim() ||
-                  !prompt.trim()
-                }
-              >
-                <Send />
-                {streaming
-                  ? 'Streaming...'
-                  : send.isPending
-                    ? 'Sending...'
-                    : 'Send Request'}
-              </Button>
-            </div>
+            <Label htmlFor="stream">Stream the response</Label>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Response</CardTitle>
+          <CardTitle className="truncate">
+            {chat?.title ?? 'New chat'}
+          </CardTitle>
           <CardDescription>
-            The model response will appear here.
+            Prompts and responses are stored on the platform for auditing and
+            security review. Your chats are also kept in this browser for{' '}
+            {KEEP_DAYS} days, the newest {KEEP_CHATS} of them; your key is not.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {send.isError && <GatewayAlert error={send.error} />}
-
-          <div
-            aria-busy={send.isPending}
-            className="min-h-32 rounded-md border p-4 text-sm whitespace-pre-wrap"
-          >
-            {text ? (
-              <>
-                {text}
-                {streaming && (
-                  <span
-                    aria-hidden="true"
-                    className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse bg-foreground/60"
-                  />
-                )}
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                {send.isPending
-                  ? 'Waiting for the model...'
-                  : reply?.stopped
-                    ? 'Stopped before the model answered.'
-                    : 'No response yet.'}
-              </span>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={chat?.id ?? ''}
+              onValueChange={openChat}
+              disabled={send.isPending || chats.length === 0}
+            >
+              <SelectTrigger
+                aria-label="Recent chats"
+                className="w-full sm:w-72"
+              >
+                <SelectValue
+                  placeholder={
+                    chats.length > 0
+                      ? 'Open a recent chat'
+                      : 'No saved chats yet'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {chats.map((saved) => (
+                  <SelectItem key={saved.id} value={saved.id}>
+                    <span className="flex items-center gap-2">
+                      <span className="truncate">{saved.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(saved.updatedAt)}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startNewChat}
+              disabled={send.isPending || chatId === null}
+            >
+              <MessageSquarePlus />
+              New chat
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete this chat"
+                  disabled={!chat || send.isPending}
+                >
+                  <Trash2 />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    It is removed from this browser. The platform's request log
+                    still keeps its requests.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={deleteChat}>
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
-          {reply && sent && (
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 text-sm text-muted-foreground">
-              {reply.stopped && (
-                <span className="font-medium text-foreground">
-                  Stopped early
-                </span>
+          <div
+            ref={transcript}
+            className="max-h-[32rem] overflow-y-auto rounded-md border p-4"
+          >
+            <ChatTranscript turns={turns} pending={pending} />
+          </div>
+
+          {send.isError && (
+            <div className="space-y-2">
+              <GatewayAlert error={send.error} />
+              {liveText && (
+                <div className="rounded-md border border-dashed px-3 py-2 text-sm whitespace-pre-wrap text-muted-foreground">
+                  {liveText}
+                </div>
               )}
-              {reply.inputTokens === null || reply.outputTokens === null ? (
-                <span>Tokens: not reported</span>
-              ) : (
-                <>
-                  <span>
-                    Tokens: {reply.inputTokens} in, {reply.outputTokens} out
-                  </span>
-                  <span>
-                    Cost:{' '}
-                    {formatMoney(
-                      requestCost(
-                        sent.model,
-                        reply.inputTokens,
-                        reply.outputTokens,
-                      ),
-                    )}
-                  </span>
-                </>
-              )}
-              {reply.firstTokenMs !== null && (
-                <span>First token: {reply.firstTokenMs} ms</span>
-              )}
-              <span>
-                {sent.stream ? 'Total' : 'Latency'}: {reply.latencyMs} ms
-              </span>
-              {reply.requestId && <span>Request ID: {reply.requestId}</span>}
             </div>
           )}
+
+          {answers > 0 && (
+            <p className="text-xs text-muted-foreground">
+              This chat so far: {answers} {answers === 1 ? 'answer' : 'answers'}
+              , {totals.inputTokens} tokens in, {totals.outputTokens} out,{' '}
+              {formatMoney(totals.cost)}. Each message sends the whole chat
+              again, so long chats use more input tokens.
+            </p>
+          )}
+          {!stored && (
+            <p className="text-xs text-destructive">
+              This browser could not keep the chat, so it is lost when the page
+              reloads.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="prompt">Message</Label>
+            <Textarea
+              id="prompt"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Write a message..."
+              className="min-h-20"
+              aria-describedby="prompt-help"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p id="prompt-help" className="text-xs text-muted-foreground">
+                Enter sends; Shift+Enter starts a new line.
+              </p>
+              <div className="flex gap-2">
+                {streaming && (
+                  <Button
+                    variant="outline"
+                    onClick={() => stop.current?.abort()}
+                  >
+                    <Square />
+                    Stop
+                  </Button>
+                )}
+                <Button
+                  onClick={handleSend}
+                  disabled={
+                    send.isPending ||
+                    !model ||
+                    !virtualKey.trim() ||
+                    !prompt.trim()
+                  }
+                >
+                  <Send />
+                  {streaming
+                    ? 'Streaming...'
+                    : send.isPending
+                      ? 'Sending...'
+                      : 'Send'}
+                </Button>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

@@ -279,8 +279,8 @@ def test_non_owner_cannot_change_owner(db, monkeypatch):
     db["supabase"].table.return_value.update.assert_not_called()
 
 
-def set_owner_change(db, monkeypatch, *, new_owner_is_member):
-    monkeypatch.setattr(team, "get_user_role", lambda user_id: "member")
+def set_owner_change(db, monkeypatch, *, new_owner_is_member, new_owner_role="team_lead"):
+    monkeypatch.setattr(team, "get_user_role", lambda user_id: new_owner_role)
     membership = MagicMock(return_value=new_owner_is_member)
     monkeypatch.setattr(team, "is_team_member", membership)
     select = db["supabase"].table.return_value.select.return_value
@@ -311,6 +311,16 @@ def test_owner_cannot_hand_team_to_a_non_member(db, monkeypatch):
 
     assert response.status_code == 400
     assert response.json() == {"message": "New owner must be a member of the team"}
+    db["supabase"].table.return_value.update.assert_not_called()
+
+
+def test_owner_cannot_hand_team_to_a_plain_member(db, monkeypatch):
+    set_owner_change(db, monkeypatch, new_owner_is_member=True, new_owner_role="member")
+
+    response = call("put", "/team/change_owner", {"team_id": "team-1", "new_owner_id": "user-2"})
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "New owner must be a team lead or admin"}
     db["supabase"].table.return_value.update.assert_not_called()
 
 

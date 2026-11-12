@@ -36,6 +36,8 @@ class ProjectCreateRequest(BaseModel):
 
 
 class ProjectUpdateRequest(BaseModel):
+    # The full new list, not a diff.
+    model_ids: list[UUID] | None = None
     budget_per_month: Annotated[
         FiniteFloat | None,
         Field(default=None, ge=0),
@@ -316,7 +318,7 @@ def patch_project(
     response: Response,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Update budget settings for a project owned by the caller's team."""
+    """Update a project's models or budget settings for its team owner or an admin."""
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         response.status_code = status.HTTP_400_BAD_REQUEST
@@ -324,6 +326,12 @@ def patch_project(
     if "warning_threshold" in changes and changes["warning_threshold"] is None:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "warning_threshold cannot be null"}
+    if "model_ids" in changes:
+        if not changes["model_ids"]:
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"message": "model_ids must list at least one model"}
+        # Drop duplicates but keep the order the client sent.
+        changes["model_ids"] = list(dict.fromkeys(changes["model_ids"]))
 
     try:
         project = get_project_by_id(project_id)
@@ -335,19 +343,32 @@ def patch_project(
         response.status_code = status.HTTP_404_NOT_FOUND
         return {"message": "Project not found"}
 
-    if current_user.role != "team_lead":
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Forbidden: only the team lead can update project budgets"}
-
     try:
         team = get_team_by_id(UUID(str(project["team_id"])))
     except Exception:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {"message": "Failed to look up team"}
 
-    if team is None or current_user.id != str(team["owner_id"]):
+    # The same rule as POST /projects: ownership decides, not the team_lead role.
+    is_owner = team is not None and current_user.id == str(team["owner_id"])
+    if current_user.role != "admin" and not is_owner:
         response.status_code = status.HTTP_403_FORBIDDEN
-        return {"message": "Forbidden: only the team lead can update project budgets"}
+        return {
+            "message": "Forbidden: only the team owner or an admin can update projects"
+        }
+
+    if "model_ids" in changes:
+        try:
+            model_rows = get_model_rows(changes["model_ids"])
+        except Exception:
+            response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return {"message": "Failed to validate models"}
+
+        if has_missing_model_ids(changes["model_ids"], model_rows):
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return {"message": "One or more model IDs do not exist"}
+
+        changes["model_ids"] = [str(model_id) for model_id in changes["model_ids"]]
 
     try:
         updated_project = update_project(project_id, changes)

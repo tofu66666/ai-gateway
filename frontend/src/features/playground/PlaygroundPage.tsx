@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CircleAlert, Send, Square } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { GatewayError, sendChat, streamChat } from '@/api/gateway'
-import { useModels } from '@/api/hooks'
+import { queryKeys, useKeys, useModels, useProjects } from '@/api/hooks'
 import type { Model } from '@/api/projects'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,7 @@ import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { requestCost } from '@/lib/cost'
 import { formatMoney } from '@/lib/format'
 import { CreateKeyDialog } from './CreateKeyDialog'
+import { checkKey, KEY_PREFIX_LENGTH, type KeyCheck } from './keyModels'
 
 type Sent = {
   model: Model
@@ -43,8 +44,13 @@ type Sent = {
 
 // H18IALMOND-11: the key decides the project, so the gateway refuses a model
 // that project does not allow. H18IALMOND-21: the answer can stream in.
+// H18IALMOND-63: the key comes first, and the model list shows only the
+// models it may use.
 export function PlaygroundPage() {
+  const queryClient = useQueryClient()
   const models = useModels()
+  const keys = useKeys()
+  const projects = useProjects()
   const [modelId, setModelId] = useState('')
   const [virtualKey, setVirtualKey] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -52,7 +58,14 @@ export function PlaygroundPage() {
   // The answer so far while it streams in; it stays if the stream fails.
   const [liveText, setLiveText] = useState('')
   const stop = useRef<AbortController | null>(null)
-  const model = models.data?.find((candidate) => candidate.id === modelId)
+  // null until the keys, projects and models have loaded.
+  const check =
+    keys.data && projects.data && models.data
+      ? checkKey(virtualKey, keys.data, projects.data, models.data)
+      : null
+  const choices = check?.found === 'mine' ? check.models : (models.data ?? [])
+  // A model the key may not use drops out instead of being sent and refused.
+  const model = choices.find((candidate) => candidate.id === modelId)
 
   const send = useMutation({
     mutationFn: (request: Sent) => {
@@ -94,23 +107,47 @@ export function PlaygroundPage() {
         <CardHeader>
           <CardTitle>New Request</CardTitle>
           <CardDescription>
-            Pick a model, then enter your virtual key and a prompt. The key's
-            project pays for the call.
+            Enter your virtual key, then pick one of the models it can use and
+            write a prompt. The key's project pays for the call.
           </CardDescription>
           <CardAction>
-            <CreateKeyDialog onUse={setVirtualKey} />
+            <CreateKeyDialog
+              onUse={setVirtualKey}
+              onCreated={() =>
+                queryClient.invalidateQueries({ queryKey: queryKeys.keys })
+              }
+            />
           </CardAction>
         </CardHeader>
 
         <CardContent className="space-y-5">
           <div className="space-y-2">
+            <Label htmlFor="virtual-key">Virtual API Key</Label>
+            <Input
+              id="virtual-key"
+              type="password"
+              value={virtualKey}
+              onChange={(event) => setVirtualKey(event.target.value)}
+              placeholder="Enter virtual API key"
+              aria-describedby="key-models"
+            />
+            <KeyHint
+              id="key-models"
+              check={check}
+              typed={virtualKey.trim().length >= KEY_PREFIX_LENGTH}
+              checking={keys.isFetching || projects.isFetching}
+              failed={keys.isError || projects.isError}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="model">Model</Label>
-            <Select value={modelId} onValueChange={setModelId}>
+            <Select value={model?.id ?? ''} onValueChange={setModelId}>
               <SelectTrigger id="model" className="w-full">
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                {models.data?.map((option) => (
+                {choices.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
                     <span className="flex items-center gap-2">
                       {option.alias}
@@ -130,17 +167,6 @@ export function PlaygroundPage() {
             {models.isError && (
               <p className="text-sm text-destructive">{models.error.message}</p>
             )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="virtual-key">Virtual API Key</Label>
-            <Input
-              id="virtual-key"
-              type="password"
-              value={virtualKey}
-              onChange={(event) => setVirtualKey(event.target.value)}
-              placeholder="Enter virtual API key"
-            />
           </div>
 
           <div className="space-y-2">
@@ -274,6 +300,52 @@ export function PlaygroundPage() {
   )
 }
 
+type KeyHintProps = {
+  id: string
+  check: KeyCheck | null
+  // At least as long as a key's prefix.
+  typed: boolean
+  checking: boolean
+  failed: boolean
+}
+
+// What the Playground knows about the key, under the key field.
+function KeyHint({ id, check, typed, checking, failed }: KeyHintProps) {
+  let text: string | null = null
+  let warning = false
+  if (check?.found === 'mine') {
+    const { key, models } = check
+    const project = key.project_name ?? 'its project'
+    if (key.status !== 'active') {
+      warning = true
+      text = `This key ${key.status === 'revoked' ? 'was revoked' : 'has expired'}, so the gateway will refuse it. Create a new key.`
+    } else if (models.length === 0) {
+      text = `This key belongs to ${project}, which allows no models yet.`
+    } else {
+      text = `This key belongs to ${project} and can use ${models.length} ${models.length === 1 ? 'model' : 'models'}.`
+    }
+  } else if (typed && checking) {
+    text = 'Checking which models this key can use...'
+  } else if (typed && failed) {
+    text =
+      'Your keys could not be loaded, so every model is listed. The gateway still checks the key.'
+  } else if (check?.found === 'not-mine') {
+    text =
+      'This key is not in your key list, so every model is listed. The gateway checks whether it may use the model you pick.'
+  }
+  return (
+    <p
+      id={id}
+      aria-live="polite"
+      className={
+        warning ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
+      }
+    >
+      {text}
+    </p>
+  )
+}
+
 const errorTitles: Record<number, string> = {
   401: 'The key was not accepted',
   403: 'Not allowed',
@@ -286,7 +358,9 @@ function GatewayAlert({ error }: { error: Error }) {
   let title = "Couldn't reach the gateway"
   if (status !== null) {
     title =
-      status >= 500 ? 'The provider failed' : (errorTitles[status] ?? 'Request failed')
+      status >= 500
+        ? 'The provider failed'
+        : (errorTitles[status] ?? 'Request failed')
   }
   return (
     <Alert variant="destructive">

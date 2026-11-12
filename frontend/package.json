@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "e2e": "start-server-and-test 'npm run dev -- --host 0.0.0.0' http://localhost:5173 'npx cypress run'"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -31,10 +32,12 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "cypress": "^16.3.0",
     "oxlint": "^1.81.0",
     "prettier": "^3.9.9",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "shadcn": "^4.21.4",
+    "start-server-and-test": "^3.0.13",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"

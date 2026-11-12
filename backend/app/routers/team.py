@@ -210,7 +210,8 @@ def change_owner(
 ):
     """
     Change the owner of a team. Only the current owner or an admin can change the owner,
-    and the new owner must be a team lead or admin who is already a member of the team.
+    and the new owner must be a team lead or admin. A new owner who isn't in the team
+    is added to it.
     Returns the team name and new owner_id.
     """
     user_id = current_user.id
@@ -254,9 +255,31 @@ def change_owner(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": "New owner must be a team lead or admin"}
 
+    # A new owner from outside the team joins it first, like an org change.
     if not is_team_member(payload.new_owner_id, payload.team_id):
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return {"message": "New owner must be a member of the team"}
+        try:
+            supabase.table("user_team_mappings").insert(
+                {
+                    "user_id": payload.new_owner_id,
+                    "team_id": payload.team_id,
+                    "can_create_key": True,
+                }
+            ).execute()
+        except Exception:
+            response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return {"message": "Failed to add new owner to the team"}
+
+        try:
+            supabase.table("audits").insert(
+                {
+                    "action": "team_add_user",
+                    "user_id": user_id,
+                    "target_id": payload.team_id,
+                    "details": {"user_id": payload.new_owner_id, "can_create_key": True},
+                }
+            ).execute()
+        except Exception:
+            pass
 
     try:
         supabase.table("teams").update({"owner_id": payload.new_owner_id}).eq(

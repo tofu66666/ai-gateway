@@ -206,7 +206,7 @@ On macOS or Linux, use Python 3.12 to create the venv and replace `.venv\Scripts
 
 `pytest.ini` adds `backend/` to the import path, so tests can use `from app...`. `db.py` creates the Supabase client at import time; set test configuration and mock client creation before importing `app.main` in route tests.
 
-Backend tests mock the Supabase client: `test_auth.py` covers `/register` and `test_models.py` covers `/models`. Nothing runs against a real database yet.
+Backend tests mock the Supabase client and the providers; nothing runs against a real database. See [Testing in the README](README.md#testing) for the approach, coverage, and the Cypress tests.
 
 ## Git workflow
 

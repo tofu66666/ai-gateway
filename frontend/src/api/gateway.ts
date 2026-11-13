@@ -2,6 +2,13 @@
 // apiFetch: the key is not the session token, and a 401 here means a bad key,
 // not an expired session.
 
+// One message of a conversation. The gateway keeps no conversation, so each
+// call carries every earlier message (H18IALMOND-62).
+export type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type ChatReply = {
   content: string
   // null when the gateway reported no usage, as when a stream stops before
@@ -46,13 +53,10 @@ type StreamChunk = {
 export async function sendChat(
   virtualKey: string,
   model: string,
-  prompt: string,
+  messages: ChatMessage[],
 ): Promise<ChatReply> {
   const started = performance.now()
-  const response = await postChat(virtualKey, {
-    model,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const response = await postChat(virtualKey, { model, messages })
   const latencyMs = Math.round(performance.now() - started)
   const data: unknown = await response.json().catch(() => null)
 
@@ -76,7 +80,7 @@ export async function sendChat(
 export async function streamChat(
   virtualKey: string,
   model: string,
-  prompt: string,
+  messages: ChatMessage[],
   { onText, signal }: { onText: (text: string) => void; signal: AbortSignal },
 ): Promise<ChatReply> {
   const started = performance.now()
@@ -89,7 +93,7 @@ export async function streamChat(
       virtualKey,
       {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages,
         stream: true,
         // Without this the gateway keeps the token counts to itself.
         stream_options: { include_usage: true },

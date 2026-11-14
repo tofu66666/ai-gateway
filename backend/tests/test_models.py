@@ -69,6 +69,7 @@ def test_non_admin_response_hides_provider_details(monkeypatch):
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
             "has_prompt": True,
+            "kind": "chat",
         }
     ]
 
@@ -90,6 +91,7 @@ def test_admin_response_includes_provider_details(monkeypatch):
             "price_per_1m_output": "1.000000",
             "data_processing_country": "Not specified",
             "has_prompt": True,
+            "kind": "chat",
             "provider": "provider-internal",
             "model": "provider-small-2026",
             "data_processing_state": None,
@@ -253,6 +255,14 @@ def test_create_payload_accepts_and_normalizes_prompt():
 def test_create_payload_rejects_oversized_prompt():
     with pytest.raises(ValidationError):
         model_payload(prompt="x" * (models.MAX_PROMPT_LENGTH + 1))
+
+
+def test_model_kind_is_listed_and_defaults_to_chat():
+    embedding = models.serialize_model({**MODEL_ROW, "kind": "embedding"}, False)
+    no_kind = models.serialize_model({**MODEL_ROW, "kind": None}, False)
+
+    assert embedding["kind"] == "embedding"
+    assert no_kind["kind"] == "chat"
 
 
 def test_blank_prompt_is_reported_as_absent():

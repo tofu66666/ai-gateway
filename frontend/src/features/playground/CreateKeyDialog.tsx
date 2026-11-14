@@ -45,8 +45,8 @@ type CreateKeyDialogProps = {
   primary?: boolean
 }
 
-// A key belongs to one project and to the person who creates it: the team
-// lead, or a member allowed to create keys. The raw key is shown only here.
+// A key belongs to one project and to the person who creates it: the team's
+// owner, or a member allowed to create keys. The raw key is shown only here.
 export function CreateKeyDialog({
   onUse,
   onCreated,
@@ -204,8 +204,8 @@ export function CreateKeyDialog({
             {/* An admin sees every project but, like anyone, can only create
                 keys where the backend's can_create_key allows it. */}
             <p className="text-xs text-muted-foreground">
-              You can create keys only in teams you lead, or where your team
-              lead allows it.
+              You can create keys only in teams you own, or where the team's
+              owner allows it.
             </p>
 
             {projects.isError && (
@@ -245,7 +245,7 @@ export function CreateKeyDialog({
             {create.isError && (
               <p className="text-sm text-destructive">
                 {create.error instanceof ApiError && create.error.status === 403
-                  ? "You can't create keys in this project. Ask its team lead for permission."
+                  ? "You can't create keys in this project. Ask the team's owner for permission."
                   : create.error.message}
               </p>
             )}
@@ -298,7 +298,8 @@ export function CreateKeyDialog({
 }
 
 // Why there is no project to choose, and who can change it: a plain user
-// asks a team lead; a team lead or an admin makes the team or the project.
+// asks a team lead or the team's owner; a team lead or an admin makes the
+// team or the project.
 function MissingProject({
   missing,
   teams,
@@ -339,8 +340,8 @@ function MissingProject({
         )}
         {missing === 'project' && !canCreate && (
           <>
-            Keys belong to a project. Ask your team lead to create one; it then
-            appears here.
+            Keys belong to a project. Ask the team's owner to create one; it
+            then appears here.
           </>
         )}
         {missing === 'project' && canCreate && (

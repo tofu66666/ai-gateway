@@ -45,9 +45,10 @@ import { useCanManageTeam } from './useCanManageTeam'
 
 type PermissionChange = { member: TeamMember; canCreateKey: boolean }
 
-// H18IALMOND-51: the team lead (or an admin) decides who is in the team and
-// who may create keys. H18IALMOND-65: they can also hand the team to another
-// member.
+// H18IALMOND-51: the team's owner (or an admin) decides who is in the team
+// and who may create keys. H18IALMOND-65: they can also hand the team to
+// another member. "Owner" is this team's manager; "team lead" is the account
+// role that someone needs to become one (Alex, #bug-complaints, Sun 1 Nov).
 export function MembersCard({ teamId }: { teamId: string }) {
   const members = useTeamMembers(teamId)
   const queryClient = useQueryClient()
@@ -89,11 +90,12 @@ export function MembersCard({ teamId }: { teamId: string }) {
 
   // The backend says why it refuses, for example when the member does not
   // have the team lead role.
-  const lead = useMutation({
-    mutationFn: (member: TeamMember) => changeTeamOwner({ team_id: teamId, new_owner_id: member.user_id }),
+  const makeOwner = useMutation({
+    mutationFn: (member: TeamMember) =>
+      changeTeamOwner({ team_id: teamId, new_owner_id: member.user_id }),
     onSuccess: (_, member) => {
-      toast.success(`${member.email} now leads the team`)
-      // Who leads a team also decides the Overview's team usage and budgets.
+      toast.success(`${member.email} now owns the team`)
+      // Who owns a team also decides the Overview's team usage and budgets.
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.members(teamId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.teamUsage([]) }),
@@ -102,7 +104,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
     },
     onError: (error) => toast.error(error.message),
   })
-  const busy = permission.isPending || remove.isPending || lead.isPending
+  const busy = permission.isPending || remove.isPending || makeOwner.isPending
 
   return (
     <Card>
@@ -157,7 +159,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
                         {member.email}
                       </span>
                       {member.is_owner && (
-                        <Badge variant="secondary">Team lead</Badge>
+                        <Badge variant="secondary">Team owner</Badge>
                       )}
                     </div>
                   </TableCell>
@@ -179,10 +181,10 @@ export function MembersCard({ teamId }: { teamId: string }) {
                     <TableCell className="text-right">
                       {!member.is_owner && (
                         <div className="flex justify-end gap-1">
-                          <MakeLeadButton
+                          <MakeOwnerButton
                             email={member.email}
                             disabled={busy}
-                            onConfirm={() => lead.mutate(member)}
+                            onConfirm={() => makeOwner.mutate(member)}
                           />
                           <RemoveButton
                             email={member.email}
@@ -209,34 +211,32 @@ type MemberActionProps = {
   onConfirm: () => void
 }
 
-function MakeLeadButton({ email, disabled, onConfirm }: MemberActionProps) {
+function MakeOwnerButton({ email, disabled, onConfirm }: MemberActionProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
-          aria-label={`Make ${email} the team lead`}
+          aria-label={`Make ${email} the team owner`}
           disabled={disabled}
         >
           <Crown />
-          <span className="hidden sm:inline">Make lead</span>
+          <span className="hidden sm:inline">Make owner</span>
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Make {email} the team lead?</AlertDialogTitle>
+          <AlertDialogTitle>Make {email} the team owner?</AlertDialogTitle>
           <AlertDialogDescription>
             They will manage this team's members, projects and budget. The
-            current lead stays in the team as a member. Only someone with the
-            team lead or admin role can lead a team.
+            current owner stays in the team as a member. Only someone with the
+            team lead or admin role can own a team.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>
-            Make team lead
-          </AlertDialogAction>
+          <AlertDialogAction onClick={onConfirm}>Make owner</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

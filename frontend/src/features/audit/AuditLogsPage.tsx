@@ -1,9 +1,10 @@
 
 import { useState } from 'react'
-import { Info } from 'lucide-react'
+import { Check, Copy, Info } from 'lucide-react'
 import type { AuditAction, AuditLogFilters } from '@/api/audit'
 import { useAuditActions, useAuditLogs } from '@/api/hooks'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -11,6 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -55,7 +64,7 @@ function formatAction(action: string) {
     .join(' ')
 }
 
-function formatDetails(details: unknown) {
+function formatDetails(details: unknown, pretty = false) {
   if (details === null || details === undefined) {
     return '—'
   }
@@ -65,10 +74,22 @@ function formatDetails(details: unknown) {
   }
 
   try {
-    return JSON.stringify(details)
+    return JSON.stringify(details, null, pretty ? 2 : undefined) ?? '—'
   } catch {
     return String(details)
   }
+}
+
+function detailsPreview(details: unknown) {
+  const text = formatDetails(details)
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (text.length <= 100) {
+    return text
+  }
+
+  return `${text.slice(0, 100)}…`
 }
 
 type TargetDescription = {
@@ -169,6 +190,92 @@ function TargetId({
   )
 }
 
+function AuditDetails({
+  details,
+  action,
+}: {
+  details: unknown
+  action: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const fullDetails = formatDetails(details, true)
+  const preview = detailsPreview(details)
+
+  async function copyDetails() {
+    try {
+      await navigator.clipboard.writeText(fullDetails)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          setCopied(false)
+        }
+      }}
+    >
+      <div className="flex min-w-0 max-w-64 flex-col items-start gap-1.5">
+        <span
+          className="w-full truncate font-mono text-xs text-muted-foreground"
+          title={preview}
+        >
+          {preview}
+        </span>
+
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto px-0 py-0"
+          >
+            View details
+          </Button>
+        </DialogTrigger>
+      </div>
+
+      <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>{formatAction(action)} details</DialogTitle>
+          <DialogDescription>
+            Full audit details for this activity.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted/30 p-4">
+          <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
+            {fullDetails}
+          </pre>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void copyDetails()}
+          >
+            {copied ? (
+              <Check className="mr-2 size-4" aria-hidden="true" />
+            ) : (
+              <Copy className="mr-2 size-4" aria-hidden="true" />
+            )}
+            {copied ? 'Copied' : 'Copy details'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function AuditLogsPage() {
   const [filters, setFilters] = useState<AuditFilterValues>(emptyFilters)
   const actions = useAuditActions()
@@ -211,7 +318,8 @@ export function AuditLogsPage() {
           <CardTitle>Activity</CardTitle>
           <CardDescription>
             Changes to keys, members, budgets, limits, models and projects.
-            Hover over a Target ID to see what it represents.
+            Hover over a Target ID to see what it represents. Select View
+            details to read the full audit record.
           </CardDescription>
         </CardHeader>
 
@@ -260,8 +368,11 @@ export function AuditLogsPage() {
                       />
                     </TableCell>
 
-                    <TableCell className="max-w-md break-words font-mono text-xs">
-                      {formatDetails(row.details)}
+                    <TableCell>
+                      <AuditDetails
+                        details={row.details}
+                        action={row.action}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

@@ -6,14 +6,14 @@ import { getTeamMembers, type Team, type TeamMember } from '@/api/teams'
 export type MyTeam = {
   team: Team
   projects: Project[]
-  // Your membership, with your key permission, and the team's lead: both
+  // Your membership, with your key permission, and the team's owner: both
   // unknown until the team's members have loaded.
   me?: TeamMember
-  lead?: TeamMember
+  owner?: TeamMember
 }
 
 // What stands between someone and their first key: a team, a project in it,
-// and their team lead's permission to create keys there.
+// and its owner's permission to create keys there.
 export type Standing = 'no-team' | 'no-project' | 'no-permission' | 'ready'
 
 export function standingOf(myTeams: MyTeam[]): Standing {
@@ -28,7 +28,7 @@ export function standingOf(myTeams: MyTeam[]): Standing {
   return allowed ? 'ready' : 'no-permission'
 }
 
-// The teams you are in, each with its projects, its lead and your key
+// The teams you are in, each with its projects, its owner and your key
 // permission: what a plain user has in place of the Teams & projects page.
 export function useMyTeams(userId: string) {
   const teams = useTeams()
@@ -57,7 +57,7 @@ export function useMyTeams(userId: string) {
                 (project) => project.team_id === team.id,
               ),
               me: rows?.find((row) => row.user_id === userId),
-              lead: rows?.find((row) => row.is_owner),
+              owner: rows?.find((row) => row.is_owner),
             }
           })
           .sort((a, b) => a.team.name.localeCompare(b.team.name))

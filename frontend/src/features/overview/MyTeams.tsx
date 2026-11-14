@@ -48,9 +48,9 @@ export function MyTeams({ nothingSent }: { nothingSent: boolean }) {
         title="You're not in a team yet"
         action={<CopyEmail email={user.email} />}
       >
-        A team lead adds people to a team by email. Send yours to your team
-        lead: <Strong>{user.email}</Strong>. Your teams and their projects then
-        appear here.
+        A team lead adds people to a team by email. Send yours to a team lead:{' '}
+        <Strong>{user.email}</Strong>. Your teams and their projects then appear
+        here.
       </EmptyState>
     )
   }
@@ -60,7 +60,8 @@ export function MyTeams({ nothingSent }: { nothingSent: boolean }) {
       <CardHeader>
         <CardTitle>Your teams</CardTitle>
         <CardDescription>
-          The teams you belong to and their projects. Team leads manage them.
+          The teams you belong to and their projects. Each team's owner manages
+          it.
         </CardDescription>
       </CardHeader>
 
@@ -112,8 +113,8 @@ function NextStep({
   if (standing === 'no-permission') {
     return (
       <Notice warning icon={KeyRound} title="You can't create keys yet">
-        Your team lead decides who may create keys. Ask {askWho(withProjects)}{' '}
-        to allow it for you.
+        Each team's owner decides who may create keys. Ask{' '}
+        {askWho(withProjects)} to allow it for you.
       </Notice>
     )
   }
@@ -165,11 +166,11 @@ function NextStep({
   return null
 }
 
-// One row per team: its lead, its projects and whether you may create keys.
+// One row per team: its owner, its projects and whether you may create keys.
 function TeamList({ myTeams }: { myTeams: MyTeam[] }) {
   return (
     <ul className="divide-y rounded-md border">
-      {myTeams.map(({ team, projects, me, lead }) => (
+      {myTeams.map(({ team, projects, me, owner }) => (
         <li
           key={team.id}
           className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-3 py-2.5"
@@ -177,9 +178,9 @@ function TeamList({ myTeams }: { myTeams: MyTeam[] }) {
           <div className="min-w-0 space-y-1.5">
             <div>
               <p className="font-medium">{team.name}</p>
-              {lead && (
+              {owner && (
                 <p className="text-xs wrap-break-word text-muted-foreground">
-                  Team lead: {lead.email}
+                  Team owner: {owner.email}
                 </p>
               )}
             </div>
@@ -202,7 +203,7 @@ function TeamList({ myTeams }: { myTeams: MyTeam[] }) {
           {me &&
             projects.length > 0 &&
             (me.is_owner ? (
-              <StatusBadge tone="neutral">Team lead</StatusBadge>
+              <StatusBadge tone="neutral">Team owner</StatusBadge>
             ) : me.can_create_key ? (
               <StatusBadge tone="success">Can create keys</StatusBadge>
             ) : (
@@ -214,19 +215,19 @@ function TeamList({ myTeams }: { myTeams: MyTeam[] }) {
   )
 }
 
-// Names the person to ask: the one team lead, or any of several.
+// Names the person to ask: the one team owner, or any of several.
 function askWho(myTeams: MyTeam[]) {
-  const leads = [
-    ...new Set(myTeams.flatMap((entry) => entry.lead?.email ?? [])),
+  const owners = [
+    ...new Set(myTeams.flatMap((entry) => entry.owner?.email ?? [])),
   ]
-  if (leads.length === 1) {
+  if (owners.length === 1) {
     return (
       <>
-        your team lead, <Strong>{leads[0]}</Strong>,
+        the team owner, <Strong>{owners[0]}</Strong>,
       </>
     )
   }
-  return leads.length > 1 ? 'one of your team leads' : 'your team lead'
+  return owners.length > 1 ? 'one of the team owners' : 'the team owner'
 }
 
 function Strong({ children }: { children: ReactNode }) {

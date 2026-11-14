@@ -1,19 +1,52 @@
+import { lazy, type ComponentType } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { RequireAuth } from '@/auth/RequireAuth'
 import { RequireRole } from '@/auth/RequireRole'
 import { AppShell } from '@/components/layout/AppShell'
 import { admins, leadsAndAdmins } from '@/components/layout/nav'
-import { AuditLogsPage } from '@/features/audit/AuditLogsPage'
 import { AuthRoute } from '@/features/auth/AuthRoute'
-import { BreakdownPage } from '@/features/breakdown/BreakdownPage'
-import { KeysPage } from '@/features/keys/KeysPage'
-import { ModelsPage } from '@/features/models/ModelsPage'
-import { OverviewPage } from '@/features/overview/OverviewPage'
-import { PlaygroundPage } from '@/features/playground/PlaygroundPage'
-import { RequestsPage } from '@/features/requests/RequestsPage'
-import { TeamPage } from '@/features/teams/TeamPage'
-import { TeamsPage } from '@/features/teams/TeamsPage'
 import { NotFoundPage } from './NotFoundPage'
+
+// Each page is its own download, fetched the first time it is opened, so the
+// sign-in page and the first page load faster. AppShell shows a placeholder
+// meanwhile.
+function lazyPage<Name extends string>(
+  load: () => Promise<Record<Name, ComponentType>>,
+  name: Name,
+) {
+  return lazy(() => load().then((module) => ({ default: module[name] })))
+}
+
+const AuditLogsPage = lazyPage(
+  () => import('@/features/audit/AuditLogsPage'),
+  'AuditLogsPage',
+)
+const BreakdownPage = lazyPage(
+  () => import('@/features/breakdown/BreakdownPage'),
+  'BreakdownPage',
+)
+const KeysPage = lazyPage(() => import('@/features/keys/KeysPage'), 'KeysPage')
+const ModelsPage = lazyPage(
+  () => import('@/features/models/ModelsPage'),
+  'ModelsPage',
+)
+const OverviewPage = lazyPage(
+  () => import('@/features/overview/OverviewPage'),
+  'OverviewPage',
+)
+const PlaygroundPage = lazyPage(
+  () => import('@/features/playground/PlaygroundPage'),
+  'PlaygroundPage',
+)
+const RequestsPage = lazyPage(
+  () => import('@/features/requests/RequestsPage'),
+  'RequestsPage',
+)
+const TeamPage = lazyPage(() => import('@/features/teams/TeamPage'), 'TeamPage')
+const TeamsPage = lazyPage(
+  () => import('@/features/teams/TeamsPage'),
+  'TeamsPage',
+)
 
 // One line per page. Add new pages here and to components/layout/nav.ts.
 export function AppRoutes() {

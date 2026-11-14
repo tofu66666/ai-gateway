@@ -1,19 +1,4 @@
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterBar } from '@/components/layout/FilterBar'
 import type { GroupBy } from './aggregate'
 
 const filterLabels: Record<GroupBy, [label: string, all: string]> = {
@@ -37,43 +22,15 @@ export function BreakdownFilters({
   onReset: () => void
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Filters</CardTitle>
-        <CardDescription>The time period is in the top bar.</CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {(['team', 'project', 'model', 'user'] as const).map((by) => (
-            <div key={by} className="space-y-2">
-              <Label htmlFor={`breakdown-${by}`}>{filterLabels[by][0]}</Label>
-              <Select
-                value={filters[by]}
-                onValueChange={(value) => onChange(by, value)}
-              >
-                <SelectTrigger id={`breakdown-${by}`} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{filterLabels[by][1]}</SelectItem>
-                  {optionsFor(by).map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onReset}>
-            Reset filters
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <FilterBar
+      filters={(['team', 'project', 'model', 'user'] as const).map((by) => ({
+        label: filterLabels[by][0],
+        all: filterLabels[by][1],
+        value: filters[by],
+        options: optionsFor(by),
+        onChange: (value) => onChange(by, value),
+      }))}
+      onReset={onReset}
+    />
   )
 }

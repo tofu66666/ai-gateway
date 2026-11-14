@@ -68,7 +68,7 @@ describe('Dashboards', () => {
     cy.visit('/login')
     cy.get('input#email').type('admin@example.com')
     cy.get('input#password').type('password123')
-    cy.contains('button', 'Sign In').click()
+    cy.contains('button', 'Sign in').click()
     cy.wait('@loginRequest')
 
     cy.location('pathname').should('eq', '/overview')
@@ -81,19 +81,19 @@ describe('Dashboards', () => {
 
     cy.contains('Requests').click()
     cy.location('pathname').should('eq', '/requests')
-    cy.contains('Request History').should('be.visible')
+    cy.contains('h1', 'Requests').should('be.visible')
 
     cy.contains('Models').click()
     cy.location('pathname').should('eq', '/models')
-    cy.contains('Available Models').should('be.visible')
+    cy.contains('Available models').should('be.visible')
     cy.contains('No models available').should('be.visible')
 
     cy.contains('Keys').click()
     cy.location('pathname').should('eq', '/keys')
-    cy.contains('Virtual API Keys').should('be.visible')
-    cy.contains('No API keys found.').should('be.visible')
+    cy.contains('Virtual API keys').should('be.visible')
+    cy.contains('No API keys yet.').should('be.visible')
 
-    cy.contains('Audit Logs').click()
+    cy.contains('Audit log').click()
     cy.location('pathname').should('eq', '/audit-logs')
     cy.contains('Activity').should('be.visible')
     cy.contains('No audit logs match these filters.').should('be.visible')

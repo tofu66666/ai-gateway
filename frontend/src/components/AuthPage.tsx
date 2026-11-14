@@ -1,5 +1,16 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { Logo } from '@/components/layout/Logo'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from '../auth/useAuth'
 
 function AuthPage() {
@@ -66,99 +77,105 @@ function AuthPage() {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-header">
-          <h1>AI Gateway</h1>
-
-          <p>
+    <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4 sm:p-6">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="justify-items-center text-center">
+          <Logo className="mb-2 size-10" />
+          <h1 className="text-2xl font-semibold">AI Gateway</h1>
+          <CardDescription>
             {isRegister
               ? 'Create your account to get started'
               : 'Sign in to access your AI Gateway'}
-          </p>
-        </div>
+          </CardDescription>
+        </CardHeader>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="email">Email</label>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
 
-            <input
-              id="email"
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-
-            <input
-              id="password"
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </div>
-
-          {isRegister && (
-            <div className="form-group">
-              <label htmlFor="confirm-password">Confirm Password</label>
-
-              <input
-                id="confirm-password"
-                type="password"
-                placeholder="Confirm your password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 required
               />
             </div>
-          )}
 
-          {expired && !error && (
-            <p className="auth-error text-sm text-destructive">
-              Your session has expired. Please sign in again.
-            </p>
-          )}
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
 
-          {error && <p className="auth-error text-sm text-destructive">{error}</p>}
+              <Input
+                id="password"
+                type="password"
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </div>
 
-          {message && <p className="auth-success text-sm text-success">{message}</p>}
+            {isRegister && (
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm password</Label>
 
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={loading}
-          >
-            {loading
-              ? 'Please wait...'
-              : isRegister
-                ? 'Create Account'
-                : 'Sign In'}
-          </button>
-        </form>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Confirm your password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              </div>
+            )}
 
-        <div className="auth-switch">
+            {expired && !error && (
+              <p className="text-sm text-destructive">
+                Your session has expired. Please sign in again.
+              </p>
+            )}
+
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            {message && <p className="text-sm text-success">{message}</p>}
+
+            <Button className="w-full" type="submit" disabled={loading}>
+              {loading
+                ? 'Please wait...'
+                : isRegister
+                  ? 'Create account'
+                  : 'Sign in'}
+            </Button>
+          </form>
+        </CardContent>
+
+        <CardFooter className="justify-center gap-1 text-muted-foreground">
           <span>
             {isRegister
               ? 'Already have an account?'
               : "Don't have an account?"}
           </span>
 
-          <button
+          <Button
             type="button"
-            className="link-button"
+            variant="link"
+            className="h-auto p-0"
             onClick={switchMode}
           >
-            {isRegister ? 'Sign In' : 'Register'}
-          </button>
-        </div>
-      </div>
+            {isRegister ? 'Sign in' : 'Register'}
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   )
 }

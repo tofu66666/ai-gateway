@@ -1,10 +1,11 @@
 import { Download } from 'lucide-react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useKeys, useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
-import { Badge } from '@/components/ui/badge'
+import { SkeletonLines, SkeletonRows } from '@/components/layout/Placeholders'
+import { StatusBadge } from '@/components/layout/StatusBadge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -25,8 +26,10 @@ import {
 import type { BreakdownRow } from '@/features/breakdown/aggregate'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { downloadCsv, toCsv } from '@/lib/csv'
-import { formatDateTime, formatMoney } from '@/lib/format'
+import { formatDateTime, formatMoney, formatShortDateTime } from '@/lib/format'
+import { httpTone } from '@/lib/status'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { cn } from '@/lib/utils'
 import { type RequestFilter, requestFilters, valueOf } from './filters'
 import { RequestDetails } from './RequestDetails'
 import { RequestFilters } from './RequestFilters'
@@ -42,6 +45,16 @@ const scopes = {
   admin: 'Every request on the platform.',
 }
 
+// A long name is cut so the numbers stay on screen; the full name is in its
+// tooltip and the details.
+function Clipped({ text, className }: { text: string; className: string }) {
+  return (
+    <span title={text} className={cn('block truncate', className)}>
+      {text}
+    </span>
+  )
+}
+
 // H18IALMOND-13, -41: the requests the caller can see in the top bar's window,
 // newest first: their own, those in the teams they lead, and every one for an
 // admin, as on the Breakdown. Usage only: prompts and responses are never
@@ -49,6 +62,8 @@ const scopes = {
 export function RequestsPage() {
   const user = useCurrentUser()
   const isAdmin = user.role === 'admin'
+  // A user sees only their own requests, so the column would repeat them.
+  const showUser = user.role !== 'user'
   const { rows, nameOf, isPending, error } = useBreakdownData()
   const keys = useKeys()
   const models = useModels()
@@ -139,7 +154,6 @@ export function RequestsPage() {
     )
   }
   const detailsOf = (row: BreakdownRow): [string, string][] => [
-    ['Request', row.id],
     ['Time', formatDateTime(row.created_at)],
     ['User', nameOf('user', row.user_id)],
     ['Team', row.team_id ? nameOf('team', row.team_id) : '—'],
@@ -155,6 +169,24 @@ export function RequestsPage() {
     ['Latency', row.latency === null ? '—' : `${row.latency} ms`],
     ['Status', String(row.status)],
   ]
+
+  const noRequests = filtering ? (
+    'No requests match these filters in this period.'
+  ) : (
+    <>
+      No requests in this period.{' '}
+      <Link
+        to="/playground"
+        className="text-primary underline-offset-4 hover:underline"
+      >
+        Try a model in the Playground
+      </Link>
+      .
+    </>
+  )
+  const statusOf = (row: BreakdownRow) => (
+    <StatusBadge tone={httpTone(row.status)}>{row.status}</StatusBadge>
+  )
 
   // Every filtered request, not just this page, in the table's columns;
   // numbers stay numbers so a spreadsheet can add them up.
@@ -187,7 +219,7 @@ export function RequestsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Request History</h1>
+        <h1 className="text-2xl font-semibold">Requests</h1>
         <p className="text-muted-foreground">{scopes[user.role]}</p>
       </div>
 
@@ -209,7 +241,7 @@ export function RequestsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Requests</CardTitle>
+          <CardTitle>Request log</CardTitle>
           <CardDescription>
             One row per model request. Usage only: prompts and responses are not
             shown.
@@ -229,86 +261,131 @@ export function RequestsPage() {
 
         <CardContent>
           {error && <ErrorState title="Couldn't load requests" error={error} />}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Key</TableHead>
-                <TableHead>Model</TableHead>
-                {isAdmin && <TableHead>Provider</TableHead>}
-                <TableHead className="text-right">Input tokens</TableHead>
-                <TableHead className="text-right">Output tokens</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Latency</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>
-                  <span className="sr-only">Details</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
+          {/* The key and the provider are in the details and the export, so
+              the table fits a laptop screen. */}
+          <div className="max-md:hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  {showUser && <TableHead>User</TableHead>}
+                  <TableHead>Project</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Tokens in / out</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead className="text-right">Latency</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Details</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
 
-            <TableBody>
-              {visible.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{formatDateTime(row.created_at)}</TableCell>
-                  <TableCell>{nameOf('user', row.user_id)}</TableCell>
-                  <TableCell>{nameOf('project', row.project_id)}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {keyOf(row.key_id)}
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {nameOf('model', row.model_id)}
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>{providerOf.get(row.model_id) ?? '—'}</TableCell>
-                  )}
-                  <TableCell className="text-right tabular-nums">
-                    {row.input_tokens.toLocaleString('en-US')}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {row.output_tokens.toLocaleString('en-US')}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatMoney(row.cost)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {row.latency === null ? '—' : `${row.latency} ms`}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        Number(row.status) < 400 ? 'secondary' : 'destructive'
-                      }
+              <TableBody>
+                {visible.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell title={formatDateTime(row.created_at)}>
+                      {formatShortDateTime(row.created_at)}
+                    </TableCell>
+                    {showUser && (
+                      <TableCell>
+                        <Clipped
+                          text={nameOf('user', row.user_id)}
+                          className="max-w-40"
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Clipped
+                        text={nameOf('project', row.project_id)}
+                        className="max-w-36"
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <Clipped
+                        text={nameOf('model', row.model_id)}
+                        className="max-w-40"
+                      />
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.input_tokens.toLocaleString('en-US')} /{' '}
+                      {row.output_tokens.toLocaleString('en-US')}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.cost)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.latency === null ? '—' : `${row.latency} ms`}
+                    </TableCell>
+                    <TableCell>{statusOf(row)}</TableCell>
+                    <TableCell>
+                      <RequestDetails
+                        requestId={row.id}
+                        time={formatDateTime(row.created_at)}
+                        fields={detailsOf(row)}
+                        compact
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {isPending && <SkeletonRows columns={showUser ? 9 : 8} />}
+                {!isPending && shown.length === 0 && !error && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={showUser ? 9 : 8}
+                      className="h-24 text-center whitespace-normal text-muted-foreground"
                     >
-                      {row.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
+                      {noRequests}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* On a phone, one block per request instead of the wide table. */}
+          <ul className="divide-y md:hidden">
+            {visible.map((row) => (
+              <li key={row.id} className="space-y-1 py-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-medium">
+                    {nameOf('model', row.model_id)}
+                  </span>
+                  {statusOf(row)}
+                </div>
+                <p className="truncate text-muted-foreground">
+                  {formatShortDateTime(row.created_at)} ·{' '}
+                  {nameOf('project', row.project_id)}
+                  {showUser && ` · ${nameOf('user', row.user_id)}`}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 text-muted-foreground tabular-nums">
+                  <span>
+                    {row.input_tokens.toLocaleString('en-US')} /{' '}
+                    {row.output_tokens.toLocaleString('en-US')} tokens ·{' '}
+                    {formatMoney(row.cost)}
+                    {row.latency !== null && ` · ${row.latency} ms`}
+                  </span>
+                  <span className="ml-auto">
                     <RequestDetails
+                      requestId={row.id}
                       time={formatDateTime(row.created_at)}
                       fields={detailsOf(row)}
                     />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {shown.length === 0 && !error && (
-                <TableRow>
-                  <TableCell
-                    colSpan={isAdmin ? 12 : 11}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    {isPending
-                      ? 'Loading requests...'
-                      : filtering
-                        ? 'No requests match these filters in this period.'
-                        : 'No requests in this period.'}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                  </span>
+                </div>
+              </li>
+            ))}
+            {isPending && (
+              <li className="py-3">
+                <SkeletonLines rows={3} className="h-16" />
+              </li>
+            )}
+            {!isPending && shown.length === 0 && !error && (
+              <li className="py-6 text-center text-sm text-muted-foreground">
+                {noRequests}
+              </li>
+            )}
+          </ul>
 
           {shown.length > pageSize && (
             <div className="flex flex-wrap items-center justify-between gap-2 pt-4 text-sm text-muted-foreground">

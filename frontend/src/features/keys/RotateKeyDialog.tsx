@@ -15,18 +15,22 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format'
+import { OneTimeKeyNotice } from './OneTimeKeyNotice'
 
 export function RotateKeyDialog({ keyId }: { keyId: string }) {
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
 
-  const rotate = useMutation({
-    mutationFn: rotateKey,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.keys })
-    },
-  })
+  // The key list refreshes only once this dialog closes: the old key is then
+  // revoked, and its row, which holds this dialog, stops offering Rotate.
+  // Refreshing at once closed the dialog before the new key could be copied.
+  const rotate = useMutation({ mutationFn: rotateKey })
 
   const created = rotate.data
 
@@ -34,6 +38,9 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
     setOpen(next)
 
     if (!next) {
+      if (created) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.keys })
+      }
       // Closing forgets the new raw key, so it is shown only once.
       rotate.reset()
     }
@@ -48,12 +55,21 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          <RotateCw />
-          Rotate
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Rotate key"
+            >
+              <RotateCw />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Rotate</TooltipContent>
+      </Tooltip>
 
       <DialogContent
         onInteractOutside={(event) => {
@@ -69,13 +85,14 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
           </DialogTitle>
           <DialogDescription>
             {created
-              ? 'Copy it now: it is shown only once. The old key no longer works.'
+              ? 'The old key no longer works.'
               : 'The current key will stop working immediately.'}
           </DialogDescription>
         </DialogHeader>
 
         {created ? (
           <div className="space-y-2">
+            <OneTimeKeyNotice />
             <div className="flex gap-2">
               <Input
                 readOnly

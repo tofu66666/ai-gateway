@@ -3,7 +3,7 @@ import { useAuth } from '@/auth/useAuth'
 import AuthPage from '@/components/AuthPage'
 import { BackendStatus } from '@/components/layout/BackendStatus'
 
-// Austin's sign-in card with the backend health line under it.
+// Austin's sign-in card, with a line under it when the backend is not ready.
 export function AuthRoute() {
   const { user } = useAuth()
   const location = useLocation()
@@ -14,10 +14,13 @@ export function AuthRoute() {
     return <Navigate to={from ?? '/'} replace />
   }
 
+  const page = location.pathname === '/register' ? 'Create account' : 'Sign in'
+
   return (
     <>
+      <title>{`${page} · AI Gateway`}</title>
       <AuthPage />
-      <BackendStatus className="backend-status" />
+      <BackendStatus className="fixed inset-x-0 bottom-3 px-4 text-center" />
     </>
   )
 }

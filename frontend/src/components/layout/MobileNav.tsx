@@ -5,10 +5,13 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { navItemsFor } from './nav'
+import { navGroups, navItemsFor } from './nav'
 
 export function MobileNav() {
   const user = useCurrentUser()
@@ -26,14 +29,28 @@ export function MobileNav() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
-        {navItemsFor(user.role).map((item) => (
-          <DropdownMenuItem key={item.path} asChild>
-            <Link to={item.path}>
-              <item.icon />
-              {item.label}
-            </Link>
-          </DropdownMenuItem>
-        ))}
+        {navGroups.map((group, index) => {
+          const items = navItemsFor(user.role).filter(
+            (item) => item.group === group,
+          )
+          if (items.length === 0) return null
+          return (
+            <DropdownMenuGroup key={group}>
+              {index > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuLabel className="text-xs text-muted-foreground uppercase">
+                {group}
+              </DropdownMenuLabel>
+              {items.map((item) => (
+                <DropdownMenuItem key={item.path} asChild>
+                  <Link to={item.path}>
+                    <item.icon />
+                    {item.label}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          )
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )

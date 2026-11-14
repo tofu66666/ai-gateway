@@ -80,7 +80,7 @@ export function AuditLogsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Audit Logs</h1>
+        <h1 className="text-2xl font-semibold">Audit log</h1>
         <p className="text-muted-foreground">
           Review administrative changes across the platform.
         </p>

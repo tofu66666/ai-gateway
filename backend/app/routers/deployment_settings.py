@@ -22,7 +22,7 @@ router = APIRouter(tags=["deployments"])
 DEPLOYMENT_COLUMNS = "id,name,provider,model,base_url,api_key_env,position"
 FORBIDDEN = {"message": "Forbidden: only an admin can manage deployments"}
 
-RoutingStrategy = Literal["round_robin", "least_busy"]
+RoutingStrategy = Literal["round_robin", "least_busy", "ordered"]
 RequiredText = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
 ]

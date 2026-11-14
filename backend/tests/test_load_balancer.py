@@ -206,3 +206,27 @@ def test_release_from_inside_acquire_does_not_deadlock():
 
     assert picked == [A]
     assert balancer.in_flight("b") == 0
+
+
+def test_ordered_always_takes_the_first():
+    assert picks(LoadBalancer(), [A, B, C], "ordered", 4) == list("aaaa")
+
+
+def test_ordered_skips_a_deployment_in_cooldown():
+    balancer = LoadBalancer(clock=Clock())
+    fail(balancer, "a")
+
+    assert picks(balancer, [A, B, C], "ordered", 4) == list("bbbb")
+
+
+def test_ordered_returns_to_the_first_after_its_cooldown():
+    clock = Clock()
+    balancer = LoadBalancer(clock=clock)
+    fail(balancer, "a")
+    assert balancer.cooldown_left("a") == COOLDOWN_SECONDS
+    assert picks(balancer, [A, B], "ordered", 2) == list("bb")
+
+    clock.now += COOLDOWN_SECONDS
+
+    assert balancer.cooldown_left("a") == 0
+    assert picks(balancer, [A, B], "ordered", 2) == list("aa")

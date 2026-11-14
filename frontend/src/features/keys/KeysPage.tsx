@@ -144,7 +144,7 @@ export function KeysPage() {
                   <TableCell>
                     <div
                       title={key.project_name ?? undefined}
-                      className="max-w-36 truncate"
+                      className="max-w-32 truncate"
                     >
                       {key.project_name ?? key.project_id.slice(0, 8)}
                     </div>
@@ -154,7 +154,7 @@ export function KeysPage() {
                     <TableCell>
                       <div
                         title={key.user_email ?? undefined}
-                        className="max-w-44 truncate"
+                        className="max-w-40 truncate"
                       >
                         {key.user_email ?? key.user_id.slice(0, 8)}
                       </div>

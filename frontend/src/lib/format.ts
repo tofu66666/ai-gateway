@@ -58,3 +58,9 @@ const shortDateTime = new Intl.DateTimeFormat('en-AU', {
 export function formatShortDateTime(value: string) {
   return shortDateTime.format(new Date(value))
 }
+
+// A share as a whole percent; a share too small to round up reads "<1%", so
+// a group that did spend never shows 0%.
+export function formatShare(share: number) {
+  return share > 0 && share < 0.005 ? '<1%' : `${Math.round(share * 100)}%`
+}

@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatMoney } from '@/lib/format'
+import { formatMoney, formatShare } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { Bucket, Granularity } from './aggregate'
 
@@ -383,7 +383,7 @@ function PeriodGroups({
               {formatMoney(group.cost)}
             </span>
             <span className="text-right text-muted-foreground tabular-nums">
-              {Math.round((group.cost / total) * 100)}%
+              {formatShare(group.cost / total)}
             </span>
           </li>
         ))}

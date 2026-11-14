@@ -30,7 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatMoney } from '@/lib/format'
+import { formatMoney, formatShare } from '@/lib/format'
 import { timeWindows, useTimeWindow, windowStart } from '@/lib/time-window'
 import { cn } from '@/lib/utils'
 import {
@@ -515,7 +515,7 @@ function TotalCells({ total, spent }: { total: GroupTotal; spent: boolean }) {
         {formatMoney(total.cost)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {spent ? `${Math.round(total.share * 100)}%` : '—'}
+        {spent ? formatShare(total.share) : '—'}
       </TableCell>
     </>
   )

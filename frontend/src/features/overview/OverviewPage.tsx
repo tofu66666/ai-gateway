@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { MyTeams } from './MyTeams'
 import { PlatformOverview } from './PlatformOverview'
 import { StatCard } from './StatCard'
 
@@ -129,12 +130,25 @@ export function OverviewPage() {
     ? spending
     : stats.data?.total_cost
 
+  const nothingSent = stats.data?.count === 0
+  // Before a plain user has a project there is nothing to show or filter:
+  // their teams card says what to do instead.
+  const userWithoutProject =
+    user.role === 'user' && projects.data?.length === 0 && !personalRequests
   // Admins rarely send requests themselves, so their empty personal figures
   // are left out.
-  const showPersonal = user.role !== 'admin' || (personalRequests ?? 0) > 0
-  // Anyone else who has sent nothing in the period is told how to start.
+  const showPersonal =
+    (user.role !== 'admin' || (personalRequests ?? 0) > 0) &&
+    !userWithoutProject
+  // A team lead who has sent nothing in the period is told how to start; a
+  // plain user's teams card does that for them.
   const showStart =
-    user.role !== 'admin' && !hasResourceFilter && stats.data?.count === 0
+    user.role === 'team_lead' && !hasResourceFilter && nothingSent
+  // A plain user has no Teams & projects page: their teams card comes first
+  // while they are starting out, and after their usage once they send.
+  const teamsFirst = user.role === 'user' && (userWithoutProject || nothingSent)
+  const teamsLast =
+    user.role === 'user' && !teamsFirst && (stats.data?.count ?? 0) > 0
 
   const personalInput = hasResourceFilter
     ? rows.reduce((sum, row) => sum + row.input_tokens, 0)
@@ -200,45 +214,49 @@ export function OverviewPage() {
         </p>
       </div>
 
-      <FilterBar
-        filters={[
-          {
-            label: 'Model',
-            all: 'All models',
-            value: model,
-            options: (models.data ?? []).map((option) => ({
-              value: option.id,
-              label: option.alias,
-            })),
-            onChange: setModel,
-          },
-          {
-            label: 'Team',
-            all: 'All teams',
-            value: team,
-            options: (teams.data ?? []).map((option) => ({
-              value: option.id,
-              label: option.name,
-            })),
-            onChange: (value) => {
-              setTeam(value)
-              setProject('all')
+      {teamsFirst && <MyTeams nothingSent={nothingSent} />}
+
+      {!userWithoutProject && (
+        <FilterBar
+          filters={[
+            {
+              label: 'Model',
+              all: 'All models',
+              value: model,
+              options: (models.data ?? []).map((option) => ({
+                value: option.id,
+                label: option.alias,
+              })),
+              onChange: setModel,
             },
-            disabled: !projects.data,
-          },
-          {
-            label: 'Project',
-            all: 'All projects',
-            value: project,
-            options: (projects.data ?? [])
-              .filter((option) => team === 'all' || option.team_id === team)
-              .map((option) => ({ value: option.id, label: option.name })),
-            onChange: setProject,
-            disabled: !projects.data,
-          },
-        ]}
-        onReset={resetFilters}
-      />
+            {
+              label: 'Team',
+              all: 'All teams',
+              value: team,
+              options: (teams.data ?? []).map((option) => ({
+                value: option.id,
+                label: option.name,
+              })),
+              onChange: (value) => {
+                setTeam(value)
+                setProject('all')
+              },
+              disabled: !projects.data,
+            },
+            {
+              label: 'Project',
+              all: 'All projects',
+              value: project,
+              options: (projects.data ?? [])
+                .filter((option) => team === 'all' || option.team_id === team)
+                .map((option) => ({ value: option.id, label: option.name })),
+              onChange: setProject,
+              disabled: !projects.data,
+            },
+          ]}
+          onReset={resetFilters}
+        />
+      )}
 
       {showStart && (
         <EmptyState
@@ -480,6 +498,8 @@ export function OverviewPage() {
           </Card>
         </>
       )}
+
+      {teamsLast && <MyTeams nothingSent={false} />}
     </div>
   )
 }

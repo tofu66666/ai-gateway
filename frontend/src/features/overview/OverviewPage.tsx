@@ -1,5 +1,6 @@
+import { Rocket } from 'lucide-react'
 import { useState } from 'react'
-
+import { Link } from 'react-router'
 import {
   useModels,
   useProjects,
@@ -10,7 +11,10 @@ import {
 } from '@/api/hooks'
 import type { RequestRow } from '@/api/requests'
 import { useCurrentUser } from '@/auth/useAuth'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonRows } from '@/components/layout/Placeholders'
+import { FilterBar } from '@/components/layout/FilterBar'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -19,14 +23,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -37,7 +33,13 @@ import {
 } from '@/components/ui/table'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
+import { MyTeams } from './MyTeams'
 import { PlatformOverview } from './PlatformOverview'
+import { StatCard } from './StatCard'
+
+const perDayFormat = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 1,
+})
 
 // H18IALMOND-12, -14, -54: your usage and, for team leads, the usage of the
 // teams they lead, filtered; admins see every team instead (H18IALMOND-26).
@@ -121,9 +123,44 @@ export function OverviewPage() {
       ? stats.data.input + stats.data.output
       : undefined
 
-  const personalSpending = hasResourceFilter
+  // GET /stats rounds the cost to four decimals; the request rows hold it in
+  // full, so once they have loaded the figure matches the team section and
+  // the model table.
+  const personalSpending = hasResourceFilter || requests.data
     ? spending
     : stats.data?.total_cost
+
+  const nothingSent = stats.data?.count === 0
+  // Before a plain user has a project there is nothing to show or filter:
+  // their teams card says what to do instead.
+  const userWithoutProject =
+    user.role === 'user' && projects.data?.length === 0 && !personalRequests
+  // Admins rarely send requests themselves, so their empty personal figures
+  // are left out.
+  const showPersonal =
+    (user.role !== 'admin' || (personalRequests ?? 0) > 0) &&
+    !userWithoutProject
+  // A team lead who has sent nothing in the period is told how to start; a
+  // plain user's teams card does that for them.
+  const showStart =
+    user.role === 'team_lead' && !hasResourceFilter && nothingSent
+  // A plain user has no Teams & projects page, so their teams card opens the
+  // page in every state, above the filters.
+  const showTeams = user.role === 'user'
+
+  const personalInput = hasResourceFilter
+    ? rows.reduce((sum, row) => sum + row.input_tokens, 0)
+    : stats.data?.input
+  const personalOutput = hasResourceFilter
+    ? rows.reduce((sum, row) => sum + row.output_tokens, 0)
+    : stats.data?.output
+  const personalPending = hasResourceFilter
+    ? requests.isPending
+    : stats.isPending
+
+  // Days so far in the window, for the "per day" captions.
+  const days = Math.max(1, Math.ceil((statsEnd - since) / 86_400_000))
+  const perDay = (value: number) => perDayFormat.format(value / days)
 
   const personalError = hasResourceFilter ? requests.error : stats.error
   const personalIsError = hasResourceFilter
@@ -175,195 +212,187 @@ export function OverviewPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>
-            The time period is in the top bar.
-          </CardDescription>
-        </CardHeader>
+      {showTeams && <MyTeams nothingSent={nothingSent} />}
 
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label>Model</Label>
-              <Select value={model} onValueChange={setModel}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All models</SelectItem>
-                  {models.data?.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.alias}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Team</Label>
-              <Select
-                value={team}
-                onValueChange={(value) => {
-                  setTeam(value)
-                  setProject('all')
-                }}
-                disabled={!projects.data}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All teams</SelectItem>
-                  {teams.data?.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <Select
-                value={project}
-                onValueChange={setProject}
-                disabled={!projects.data}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All projects</SelectItem>
-                  {projects.data
-                    ?.filter(
-                      (option) =>
-                        team === 'all' || option.team_id === team,
-                    )
-                    .map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={resetFilters}>
-              Reset filters
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {user.role === 'admin' && <PlatformOverview matches={matches} />}
-
-      <div>
-        <h2 className="text-lg font-semibold">
-          Your Usage & Spending
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Your personal usage across all teams and projects.
-        </p>
-      </div>
-
-      {personalIsError && personalError && (
-        <ErrorState
-          title="Couldn't load your usage"
-          error={personalError}
+      {!userWithoutProject && (
+        <FilterBar
+          filters={[
+            {
+              label: 'Model',
+              all: 'All models',
+              value: model,
+              options: (models.data ?? []).map((option) => ({
+                value: option.id,
+                label: option.alias,
+              })),
+              onChange: setModel,
+            },
+            {
+              label: 'Team',
+              all: 'All teams',
+              value: team,
+              options: (teams.data ?? []).map((option) => ({
+                value: option.id,
+                label: option.name,
+              })),
+              onChange: (value) => {
+                setTeam(value)
+                setProject('all')
+              },
+              disabled: !projects.data,
+            },
+            {
+              label: 'Project',
+              all: 'All projects',
+              value: project,
+              options: (projects.data ?? [])
+                .filter((option) => team === 'all' || option.team_id === team)
+                .map((option) => ({ value: option.id, label: option.name })),
+              onChange: setProject,
+              disabled: !projects.data,
+            },
+          ]}
+          onReset={resetFilters}
         />
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardDescription>Total Requests</CardDescription>
-            <CardTitle className="text-2xl">
-              {shown(personalRequests?.toLocaleString('en-US'))}
-            </CardTitle>
-          </CardHeader>
-        </Card>
+      {showStart && (
+        <EmptyState
+          icon={Rocket}
+          title="Nothing sent in this period"
+          action={
+            <>
+              <Button asChild size="sm">
+                <Link to="/keys">Create a key</Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/playground">Open the Playground</Link>
+              </Button>
+            </>
+          }
+        >
+          Create a key for one of your projects, then try a model in the
+          Playground. Not in a team yet? Ask a team lead to add you.
+        </EmptyState>
+      )}
 
-        <Card>
-          <CardHeader>
-            <CardDescription>Token Usage</CardDescription>
-            <CardTitle className="text-2xl">
-              {shown(personalTokens?.toLocaleString('en-US'))}
-            </CardTitle>
-          </CardHeader>
-        </Card>
+      {user.role === 'admin' && <PlatformOverview matches={matches} />}
 
-        <Card>
-          <CardHeader>
-            <CardDescription>Total Spending</CardDescription>
-            <CardTitle className="text-2xl">
-              {personalSpending === undefined
-                ? '—'
-                : formatMoney(personalSpending)}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+      {showPersonal && (
+        <>
+          <div>
+            <h2 className="text-lg font-semibold">
+              Your usage & spending
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Your personal usage across all teams and projects.
+            </p>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Spending by Model</CardTitle>
-          <CardDescription>
-            Your personal spending grouped by model.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent>
-          {byModel.length === 0 ? (
-            <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
-              No personal usage data available
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Requests</TableHead>
-                  <TableHead>Tokens</TableHead>
-                  <TableHead>Spending</TableHead>
-                  <TableHead>Share</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {byModel.map((entry) => (
-                  <TableRow key={entry.alias}>
-                    <TableCell className="font-medium">
-                      {entry.alias}
-                    </TableCell>
-                    <TableCell>{entry.requests}</TableCell>
-                    <TableCell>
-                      {entry.tokens.toLocaleString('en-US')}
-                    </TableCell>
-                    <TableCell>{formatMoney(entry.cost)}</TableCell>
-                    <TableCell>
-                      {spending > 0
-                        ? `${Math.round((entry.cost / spending) * 100)}%`
-                        : '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          {personalIsError && personalError && (
+            <ErrorState
+              title="Couldn't load your usage"
+              error={personalError}
+            />
           )}
-        </CardContent>
-      </Card>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <StatCard
+              pending={personalPending}
+              label="Total requests"
+              value={shown(personalRequests?.toLocaleString('en-US'))}
+              detail={shown(
+                personalRequests === undefined
+                  ? undefined
+                  : `${perDay(personalRequests)} per day`,
+              )}
+            />
+            <StatCard
+              pending={personalPending}
+              label="Token usage"
+              value={shown(personalTokens?.toLocaleString('en-US'))}
+              detail={shown(
+                personalInput === undefined || personalOutput === undefined
+                  ? undefined
+                  : `${personalInput.toLocaleString('en-US')} in · ${personalOutput.toLocaleString('en-US')} out`,
+              )}
+            />
+            <StatCard
+              pending={personalPending}
+              label="Total spending"
+              value={shown(
+                personalSpending === undefined
+                  ? undefined
+                  : formatMoney(personalSpending),
+              )}
+              detail={shown(
+                personalSpending === undefined
+                  ? undefined
+                  : `${formatMoney(personalSpending / days)} per day`,
+              )}
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Spending by model</CardTitle>
+              <CardDescription>
+                Your personal spending grouped by model.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent>
+              {byModel.length === 0 ? (
+                <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
+                  No personal usage data available
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Model</TableHead>
+                      <TableHead className="text-right">Requests</TableHead>
+                      <TableHead className="text-right">Tokens</TableHead>
+                      <TableHead className="text-right">Spending</TableHead>
+                      <TableHead className="text-right">Share</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {byModel.map((entry) => (
+                      <TableRow key={entry.alias}>
+                        <TableCell className="font-medium">
+                          {entry.alias}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {entry.requests}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {entry.tokens.toLocaleString('en-US')}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(entry.cost)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {spending > 0
+                            ? `${Math.round((entry.cost / spending) * 100)}%`
+                            : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       {user.role === 'team_lead' && (
         <>
           <div>
             <h2 className="text-lg font-semibold">
-              Team Usage & Spending
+              Team usage & spending
             </h2>
             <p className="text-sm text-muted-foreground">
               Usage and spending in the teams you lead.
@@ -378,37 +407,35 @@ export function OverviewPage() {
           )}
 
           <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardDescription>Total Requests</CardDescription>
-                <CardTitle className="text-2xl">
-                  {teamShown(teamRows.length.toLocaleString('en-US'))}
-                </CardTitle>
-              </CardHeader>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardDescription>Token Usage</CardDescription>
-                <CardTitle className="text-2xl">
-                  {teamShown(tokensOf(teamRows).toLocaleString('en-US'))}
-                </CardTitle>
-              </CardHeader>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardDescription>Total Spending</CardDescription>
-                <CardTitle className="text-2xl">
-                  {teamShown(formatMoney(teamSpending))}
-                </CardTitle>
-              </CardHeader>
-            </Card>
+            <StatCard
+              pending={teamUsage.isPending}
+              label="Total requests"
+              value={teamShown(teamRows.length.toLocaleString('en-US'))}
+              detail={teamShown(`${perDay(teamRows.length)} per day`)}
+            />
+            <StatCard
+              pending={teamUsage.isPending}
+              label="Token usage"
+              value={teamShown(tokensOf(teamRows).toLocaleString('en-US'))}
+              detail={teamShown(
+                `${teamRows
+                  .reduce((sum, row) => sum + row.input_tokens, 0)
+                  .toLocaleString('en-US')} in · ${teamRows
+                  .reduce((sum, row) => sum + row.output_tokens, 0)
+                  .toLocaleString('en-US')} out`,
+              )}
+            />
+            <StatCard
+              pending={teamUsage.isPending}
+              label="Total spending"
+              value={teamShown(formatMoney(teamSpending))}
+              detail={teamShown(`${formatMoney(teamSpending / days)} per day`)}
+            />
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Member Usage</CardTitle>
+              <CardTitle>Member usage</CardTitle>
               <CardDescription>
                 Usage and spending share for each team member.
               </CardDescription>
@@ -419,23 +446,23 @@ export function OverviewPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Member</TableHead>
-                    <TableHead>Requests</TableHead>
-                    <TableHead>Tokens</TableHead>
-                    <TableHead>Spending</TableHead>
-                    <TableHead>Share</TableHead>
+                    <TableHead className="text-right">Requests</TableHead>
+                    <TableHead className="text-right">Tokens</TableHead>
+                    <TableHead className="text-right">Spending</TableHead>
+                    <TableHead className="text-right">Share</TableHead>
                   </TableRow>
                 </TableHeader>
 
                 <TableBody>
-                  {(teamUsage.isPending || byMember.length === 0) && (
+                  {teamUsage.isPending && <SkeletonRows columns={5} rows={3} />}
+
+                  {!teamUsage.isPending && byMember.length === 0 && (
                     <TableRow>
                       <TableCell
                         colSpan={5}
                         className="h-24 text-center text-muted-foreground"
                       >
-                        {teamUsage.isPending
-                          ? 'Loading team usage...'
-                          : 'No member usage data available'}
+                        No member usage data available
                       </TableCell>
                     </TableRow>
                   )}
@@ -445,14 +472,16 @@ export function OverviewPage() {
                       <TableCell className="font-medium break-all whitespace-normal">
                         {member.email}
                       </TableCell>
-                      <TableCell>{member.requests}</TableCell>
-                      <TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {member.requests}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
                         {member.tokens.toLocaleString('en-US')}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right tabular-nums">
                         {formatMoney(member.cost)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right tabular-nums">
                         {teamSpending > 0
                           ? `${Math.round(
                               (member.cost / teamSpending) * 100,

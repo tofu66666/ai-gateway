@@ -18,6 +18,7 @@ ROW={
     "cost": 0.000004,
     "status":"200",
     "latency":1234,
+    "attempt_count":3,
     "created_at":"2026-10-13T06:53:30+00:00",
 }
 
@@ -43,6 +44,7 @@ def test_request_hist_returns_newest_first(monkeypatch):
 
     assert r.status_code==200
     assert r.json()==[ROW]
+    assert "attempt_count" in request_history.REQUEST_COLUMNS
     chain=fake.table.return_value.select.return_value
     assert fake.table.call_args==call("requests")
     assert chain.eq.call_args==call("user_id", "u1")

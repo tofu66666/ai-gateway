@@ -8,7 +8,7 @@ import pytest
 import httpx
 
 from app.main import app
-from app import budget, guardrails, load_balancer, request_log
+from app import budget, guardrails, load_balancer, request_log, retry_policy
 from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
@@ -29,6 +29,7 @@ def one_deployment(model):
     return {"id":"d1", "provider":model["provider"], "model":model["model"], "base_url":None, "api_key_env":None}
 
 def fake_auth(monkeypatch, key=KEY, model=MODEL, rules=NO_GUARDRAILS, deployments=None):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     # Skip the key check
     monkeypatch.setitem(
         app.dependency_overrides, gateway.require_budget_available, lambda: key
@@ -53,12 +54,9 @@ def fake_log(monkeypatch):
 
 def fake_provider(monkeypatch, response=None, error=None):
     monkeypatch.setattr(gateway.config, "GEMINI_API_KEY", "provider-key")
-    
-    def fake_post(url, json, headers, timeout):
-        if error is not None:
-            raise error
-        return response
-    monkeypatch.setattr(gateway.httpx, "post", fake_post)
+    send=MagicMock(side_effect=error, return_value=response)
+    monkeypatch.setattr(gateway.httpx, "post", send)
+    return send
 
 def post():
     return client.post("/chat/completions", json=BODY, headers=AUTH)
@@ -338,10 +336,16 @@ def test_real_request_prepends_model_master_prompt(monkeypatch):
 # Test logging
 
 # Valid call: result one row and update the project spend
-def test_logs_request_success(monkeypatch):
+@pytest.mark.parametrize("failures", [0, 2])
+def test_logs_request_success(monkeypatch, failures):
     fake_auth(monkeypatch)
     logged=fake_log(monkeypatch)
-    fake_provider(monkeypatch, response=httpx.Response(200, json=USAGE_REPLY))
+    provider=fake_provider(monkeypatch)
+    provider.side_effect=[httpx.Response(503), httpx.Response(429)][:failures]+[
+        httpx.Response(200, json=USAGE_REPLY),
+    ]
+    waits=[]
+    monkeypatch.setattr(retry_policy, "sleep", waits.append)
     r=post()
 
     assert r.status_code==200 and r.json()==USAGE_REPLY
@@ -351,6 +355,12 @@ def test_logs_request_success(monkeypatch):
     assert sent["model"]==MODEL
     assert sent["payload"]==USAGE_REPLY
     assert sent["status_code"]==200
+    assert sent["attempt_count"]==provider.call_count==failures+1
+    assert sent["deployment_id"]=="d1"
+    assert waits==[1, 2][:failures]
+    assert {call.kwargs["timeout"] for call in provider.call_args_list}=={30}
+    assert load_balancer.balancer.cooldown_left("d1")==0
+    assert load_balancer.balancer.in_flight("d1")==0
     assert isinstance(sent["latency_ms"], int) and sent["latency_ms"]>=0
 
 # Provider errors: logged with status and no cost
@@ -364,24 +374,34 @@ def test_logs_provider_error(monkeypatch):
     assert logged[0]["status_code"]==429 
 
 # Provider timeout
-def test_logs_provider_timeout(monkeypatch):
-    fake_auth(monkeypatch)
+@pytest.mark.parametrize("retries,timeout", [(3, 30), (0, 90), (1, 12)])
+def test_logs_provider_timeout(monkeypatch, retries, timeout):
+    fake_auth(monkeypatch, model={
+        **MODEL, "retry_count": retries, "retry_backoff_seconds": [0.5]*retries,
+        "timeout_seconds": timeout,
+    })
     logged=fake_log(monkeypatch)
-    fake_provider(monkeypatch, error=httpx.ReadTimeout("slow"))
+    waits=[]
+    monkeypatch.setattr(retry_policy, "sleep", waits.append)
+    provider=fake_provider(monkeypatch, error=httpx.ReadTimeout("slow"))
     r=post()
     
     assert r.status_code==504
     assert logged[0]["status_code"]==504
+    assert len(logged)==1 and logged[0]["attempt_count"]==provider.call_count==retries+1
+    assert provider.call_args.kwargs["timeout"]==timeout
+    assert waits==[0.5]*retries
 
 # Provider unreachable
 def test_logs_provider_unreachable(monkeypatch):
     fake_auth(monkeypatch)
     logged=fake_log(monkeypatch)
-    fake_provider(monkeypatch, error=httpx.ConnectError("down"))
+    provider=fake_provider(monkeypatch, error=httpx.ConnectError("down"))
     r=post()
 
     assert r.status_code==502
     assert logged[0]["status_code"]==502
+    assert len(logged)==1 and logged[0]["attempt_count"]==provider.call_count==4
 
 # Provider response with wrong format (not JSON)
 def test_logs_provider_non_json(monkeypatch):
@@ -484,6 +504,7 @@ def test_logs_error_res_with_req_id_no_model(monkeypatch):
 
 @pytest.fixture
 def log_setup(monkeypatch):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     monkeypatch.setitem(app.dependency_overrides, gateway.require_budget_available, lambda: KEY)
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
@@ -504,7 +525,7 @@ def log_setup(monkeypatch):
 def test_json_req_log_req_res_text(log_setup, monkeypatch):
     logged=log_setup
     reply={"choices":[{"message":{"role":"assistant", "content": "hello"}}]}
-    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(200, json=reply))
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b, timeout=None: httpx.Response(200, json=reply))
     r=client.post("/chat/completions", headers=AUTH, json={
         "model":"mq",
         "messages":[{"role":"user","content":"q1"},
@@ -517,7 +538,7 @@ def test_json_req_log_req_res_text(log_setup, monkeypatch):
 
 def test_json_error_no_response(log_setup, monkeypatch):
     logged=log_setup
-    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b: httpx.Response(500, json={"error": {"message": "x"}}))
+    monkeypatch.setattr(gateway, "call_prov", lambda p, e, b, timeout=None: httpx.Response(500, json={"error": {"message": "x"}}))
     client.post("/chat/completions", headers=AUTH, json={
         "model":"mq",
         "messages":[{"role":"user","content":"q1"}],
@@ -531,7 +552,7 @@ def test_master_prompt_not_saved_as_request_text(log_setup, monkeypatch):
     logged=log_setup
     monkeypatch.setitem(MODEL, "prompt", "Be brief")
     sent={}
-    def fake_call(p,e,b):
+    def fake_call(p,e,b,timeout=None):
         sent["body"]=b
         return httpx.Response(200, json={"choices":[{"message":{"content":"ok"}}]})
     

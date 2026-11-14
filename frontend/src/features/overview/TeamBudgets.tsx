@@ -2,6 +2,7 @@ import { Ban } from 'lucide-react'
 import { Link } from 'react-router'
 import { useProjects, useTeamBudgets, useTeams } from '@/api/hooks'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import {
   Card,
   CardContent,
@@ -10,6 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { BudgetBar } from './BudgetBar'
 import { type BudgetState, teamBudgetRows } from './metrics'
 
 // Each state has a dot and words, so it never rests on colour alone.
@@ -22,7 +24,8 @@ const look: Record<BudgetState, [dot: string, words: string]> = {
 
 // H18IALMOND-26: each team's month against its budget (H18IALMOND-19), the
 // most urgent first: amber past the alert threshold, red once blocked, and
-// how many projects can no longer send requests.
+// how many projects can no longer send requests. A bar shows the spend, with
+// a mark at the alert threshold.
 export function TeamBudgets() {
   const teams = useTeams()
   const budgets = useTeamBudgets(teams.data)
@@ -43,17 +46,15 @@ export function TeamBudgets() {
         {error ? (
           <ErrorState title="Couldn't load team budgets" error={error} />
         ) : budgets.isPending || projects.isPending ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Loading budgets...
-          </p>
+          <SkeletonLines rows={2} className="h-9" />
         ) : rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No teams yet.
           </p>
         ) : (
-          <ul className="space-y-3 text-sm">
+          <ul className="space-y-4 text-sm">
             {rows.map((row) => (
-              <li key={row.id}>
+              <li key={row.id} className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-x-2">
                   <span
                     aria-hidden
@@ -73,8 +74,16 @@ export function TeamBudgets() {
                     {look[row.state][1]}
                   </span>
                 </div>
+                {row.usage !== null && (
+                  <BudgetBar
+                    usage={row.usage}
+                    threshold={row.threshold}
+                    state={row.state}
+                    className="ml-4.5"
+                  />
+                )}
                 {row.cutOff > 0 && (
-                  <p className="mt-1 ml-4.5 flex items-center gap-1.5 text-destructive">
+                  <p className="ml-4.5 flex items-center gap-1.5 text-destructive">
                     <Ban aria-hidden className="size-3.5" />
                     {row.cutOff === 1
                       ? '1 project'

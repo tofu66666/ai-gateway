@@ -9,6 +9,7 @@ import { queryKeys, useTeams } from '@/api/hooks'
 import { createTeam } from '@/api/teams'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -61,7 +62,7 @@ export function TeamsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Teams & Projects</h1>
+        <h1 className="text-2xl font-semibold">Teams & projects</h1>
         <p className="text-muted-foreground">
           Open a team to manage its projects and members.
         </p>
@@ -69,7 +70,7 @@ export function TeamsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{isAdmin ? 'All Teams' : 'Your Teams'}</CardTitle>
+          <CardTitle>{isAdmin ? 'All teams' : 'Your teams'}</CardTitle>
           <CardDescription>
             {/* Admins see every team, whether or not they are in it. */}
             {isAdmin
@@ -85,9 +86,7 @@ export function TeamsPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {teams.isPending && (
-            <p className="text-muted-foreground">Loading teams...</p>
-          )}
+          {teams.isPending && <SkeletonLines rows={3} className="h-12" />}
 
           {teams.isError && (
             <ErrorState title="Couldn't load your teams" error={teams.error} />

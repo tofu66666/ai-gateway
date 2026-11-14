@@ -7,13 +7,16 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.dependencies import CurrentUser, get_current_user
+from app.gateway_logic_helper import model_kind
+from app.retry_policy import POLICY_COLUMNS, ResiliencePolicy, policy_from_row
 from app.routers.db import get_user_id, get_user_role, supabase
 
 router = APIRouter(tags=["models"])
 security = HTTPBearer()
 
 PUBLIC_MODEL_COLUMNS = (
-    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,prompt"
+    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,"
+    "prompt,kind"
 )
 ADMIN_MODEL_COLUMNS = PUBLIC_MODEL_COLUMNS + ",provider,model,data_processing_state"
 UNKNOWN_COUNTRY = "Not specified"
@@ -104,6 +107,9 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
             model_row.get("data_processing_country")
         ),
         "has_prompt": prompt is not None,
+        # Chat, embedding or completion, so the dashboard offers each model
+        # only where it works. A row without a kind is a chat model.
+        "kind": model_kind(model_row),
     }
 
     if include_provider_details:
@@ -373,3 +379,42 @@ def patch_model_prompt(
         pass
 
     return updated_model
+
+
+@router.get("/models/{model_id}/resilience")
+def get_model_resilience(model_id: UUID, user: CurrentUser = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Only administrators can manage resilience settings")
+    try:
+        rows = (supabase.table("models").select(POLICY_COLUMNS)
+                .eq("id", str(model_id)).limit(1).execute().data)
+    except Exception as exc:
+        raise HTTPException(500, "Failed to retrieve resilience settings") from exc
+    if not rows:
+        raise HTTPException(404, "Model not found")
+    return policy_from_row(rows[0])
+
+
+@router.put("/models/{model_id}/resilience")
+def put_model_resilience(
+    model_id: UUID, payload: ResiliencePolicy,
+    user: CurrentUser = Depends(get_current_user),
+):
+    if user.role != "admin":
+        raise HTTPException(403, "Only administrators can manage resilience settings")
+    settings = payload.model_dump()
+    try:
+        rows = (supabase.table("models").update(settings)
+                .eq("id", str(model_id)).execute().data)
+    except Exception as exc:
+        raise HTTPException(500, "Failed to update resilience settings") from exc
+    if not rows:
+        raise HTTPException(404, "Model not found")
+    try:
+        supabase.table("audits").insert({
+            "user_id": user.id, "action": "model_modify",
+            "target_id": str(model_id), "details": {"resilience": settings},
+        }).execute()
+    except Exception:
+        pass
+    return policy_from_row(rows[0])

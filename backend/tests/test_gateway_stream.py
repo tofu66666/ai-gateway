@@ -5,10 +5,11 @@ import threading
 import time
 import httpx
 import pytest
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app import guardrails, load_balancer, request_log
+from app import guardrails, load_balancer, request_log, retry_policy
 from app.load_balancer import LoadBalancer
 from app.routers import gateway
 
@@ -51,6 +52,7 @@ class FakeStream:
 
 @pytest.fixture
 def stream_setup(monkeypatch):
+    monkeypatch.setattr(retry_policy, "sleep", lambda seconds: None)
     monkeypatch.setitem(app.dependency_overrides, gateway.require_budget_available, lambda: KEY)
     monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [MODEL])
     monkeypatch.setattr(gateway, "model_exists", lambda name: True)
@@ -63,8 +65,10 @@ def stream_setup(monkeypatch):
     sent={}
 
     def provide(stream=None, error=None):
-        def fake_open(deployment, endpoint, body):
-            sent.update(deployment=deployment, endpoint=endpoint, body=body)
+        sent["calls"]=0
+        def fake_open(deployment, endpoint, body, timeout=None):
+            sent["calls"]+=1
+            sent.update(deployment=deployment, endpoint=endpoint, body=body, timeout=timeout)
             if error:
                 raise error
             return stream
@@ -77,10 +81,17 @@ def do_post(body=BODY):
 GOOD=[chunk("Hel"), "", chunk("lo"), "", chunk(finish="stop"), "",
       chunk(usage={"prompt_tokens": 10, "completion_tokens": 5}), "", "data: [DONE]", ""]
 
-def test_stream_returns_sse_ending_with_done(stream_setup):
+@pytest.mark.parametrize("failure", [None, 503, httpx.ConnectError("down")])
+def test_stream_returns_sse_ending_with_done(stream_setup, monkeypatch, failure):
     logged, sent, provide=stream_setup
     stream=FakeStream(GOOD)
-    provide(stream)
+    model={**MODEL, "retry_count": 1, "retry_backoff_seconds": [0.25], "timeout_seconds": 7}
+    monkeypatch.setattr(gateway, "get_allowed_models", lambda ids: [model])
+    waits=[]
+    monkeypatch.setattr(retry_policy, "sleep", waits.append)
+    failure=FakeStream([], status=503) if failure==503 else failure
+    send=MagicMock(side_effect=[failure, stream] if failure is not None else [stream])
+    monkeypatch.setattr(gateway, "open_stream", send)
     r=do_post()
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
@@ -88,6 +99,15 @@ def test_stream_returns_sse_ending_with_done(stream_setup):
     assert r.text.rstrip().endswith("data: [DONE]")
     assert "Hel" in r.text and "lo" in r.text
     assert stream.closed
+    attempts=1 if failure is None else 2
+    assert send.call_count==attempts and len(logged)==1
+    assert logged[0]["attempt_count"]==attempts
+    assert waits==[0.25]*(attempts-1)
+    assert {call.kwargs["timeout"] for call in send.call_args_list}=={7}
+    if isinstance(failure, FakeStream):
+        assert failure.closed
+    assert load_balancer.balancer.in_flight("d1")==0
+    assert load_balancer.balancer.cooldown_left("d1")==0
 
 def test_stream_asks_usage_and_hides_it_when_not_requested(stream_setup):
     logged, sent, provide=stream_setup
@@ -149,6 +169,8 @@ def test_stream_failure_midstream_sends_error_event_and_logs_error(stream_setup,
     assert logged[0]["status_code"]==status
     assert logged[0]["response_text"] is None
     assert stream.closed
+    assert sent["calls"]==1 and len(logged)==1
+    assert logged[0]["attempt_count"]==1
 
 def test_stream_error_chunk_from_provider_is_logged_as_error(stream_setup):
     logged, sent, provide=stream_setup
@@ -181,6 +203,9 @@ def test_stream_cannot_connect(stream_setup, error, status):
     provide(error=error)
     assert do_post().status_code==status
     assert logged[0]["status_code"]==status
+    assert sent["calls"]==4 and len(logged)==1
+    assert logged[0]["attempt_count"]==4
+    assert load_balancer.balancer.in_flight("d1")==0
 
 def test_stream_only_on_chat(stream_setup):
     logged, sent, provide=stream_setup

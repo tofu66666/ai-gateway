@@ -8,6 +8,7 @@ import { queryKeys, useModels, useProjects, useTeams } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/useAuth'
 import { EmptyState } from '@/components/layout/EmptyState'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { BudgetBar } from '@/features/overview/BudgetBar'
 import { formatMoney } from '@/lib/format'
 
 import { ChangeTeamLeadDialog } from './ChangeTeamLeadDialog'
@@ -180,9 +182,7 @@ function ProjectsCard({ teamId }: { teamId: string }) {
         )}
 
         {projects.isPending && (
-          <p className="text-sm text-muted-foreground">
-            Loading projects...
-          </p>
+          <SkeletonLines rows={2} />
         )}
 
         {projects.isError && (
@@ -239,7 +239,7 @@ function ProjectsCard({ teamId }: { teamId: string }) {
                     </div>
                   </TableCell>
 
-                  <TableCell className="text-right">
+                  <TableCell className="text-right tabular-nums">
                     {project.budget_per_month === null
                       ? 'No limit'
                       : formatMoney(
@@ -247,9 +247,32 @@ function ProjectsCard({ teamId }: { teamId: string }) {
                         )}
                   </TableCell>
 
-                  <TableCell className="text-right">
-                    {formatMoney(
-                      project.spend_this_month,
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(project.spend_this_month)}
+
+                    {typeof project.usage_ratio === 'number' && (
+                      <div className="mt-1 ml-auto flex w-32 items-center gap-2">
+                        <BudgetBar
+                          usage={project.usage_ratio}
+                          threshold={
+                            project.warning_threshold ?? 0.8
+                          }
+                          state={
+                            project.blocked
+                              ? 'blocked'
+                              : project.warning
+                                ? 'alert'
+                                : 'ok'
+                          }
+                          className="flex-1"
+                        />
+
+                        <span className="text-xs text-muted-foreground">
+                          {Math.round(
+                            project.usage_ratio * 100,
+                          )}%
+                        </span>
+                      </div>
                     )}
                   </TableCell>
 

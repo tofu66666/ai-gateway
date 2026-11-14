@@ -11,6 +11,7 @@ def usage(prompt, completion):
 def test_get_usage():
     assert request_log.get_usage(usage(1000,500))==(1000,500)
 
+
 # Every types are wrong: get usage=(0,0)
 @pytest.mark.parametrize(
     "payload",
@@ -106,10 +107,10 @@ def test_build_record_status():
     assert build(usage(10,10), status_code=400)["input_tokens"]==0
 
 
-def call_log_request(status_code=200):
+def call_log_request(status_code=200, attempt_count=None):
     return request_log.log_request(
         key=KEY, model=MODEL, payload=usage(1000,500),
-        status_code=status_code, latency_ms=50,
+        status_code=status_code, latency_ms=50, attempt_count=attempt_count,
     )
 
 # Null price -> cost 0
@@ -126,7 +127,7 @@ def test_log_request_success(monkeypatch):
     monkeypatch.setattr(request_log, "supabase", fake)
 
     # Create request_log
-    call_log_request()
+    call_log_request(attempt_count=4)
 
     # Only access requests table
     # spend go through rpc(remote procedure call)
@@ -141,15 +142,18 @@ def test_log_request_success(monkeypatch):
         "cost":pytest.approx(0.0003),
         "status":"200",
         "latency":50,
+        "attempt_count":4,
     })
+    fake.rpc.assert_called_once_with("add_spend", {"p_id": "p1", "amount": pytest.approx(0.0003)})
 
 # failed case
-def test_log_request_failed(monkeypatch):
+@pytest.mark.parametrize("status,attempts", [(429, 4), (400, 0)])
+def test_log_request_failed(monkeypatch, status, attempts):
     fake=MagicMock()
     monkeypatch.setattr(request_log, "supabase", fake)
 
     # Create request_log with failed communication
-    call_log_request(status_code=429)
+    call_log_request(status_code=status, attempt_count=attempts)
 
     assert fake.table.call_args_list==[call("requests")]
     assert fake.table.return_value.insert.call_args==call({
@@ -159,9 +163,11 @@ def test_log_request_failed(monkeypatch):
         "input_tokens":0 ,
         "output_tokens":0,
         "cost":0,
-        "status":"429",
+        "status":str(status),
         "latency":50,
+        "attempt_count":attempts,
     })
+    fake.table.return_value.insert.assert_called_once()
     # failed status_code -> stop before calling project
     assert fake.rpc.call_count==0
 

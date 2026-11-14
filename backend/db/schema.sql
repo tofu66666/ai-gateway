@@ -20,7 +20,10 @@ create table if not exists models (
                             check (kind in ('chat', 'embedding', 'completion')),
   -- How traffic for this alias is shared across its deployments (H18IALMOND-37).
   routing_strategy        text not null default 'round_robin'
-                            check (routing_strategy in ('round_robin', 'least_busy'))
+                            check (routing_strategy in ('round_robin', 'least_busy')),
+  retry_count             integer not null default 3 check (retry_count >= 0),
+  retry_backoff_seconds   double precision[] not null default '{1,2,4}',
+  timeout_seconds         double precision not null default 30 check (timeout_seconds > 0)
 );
 
 -- Where an alias can really be served from (H18IALMOND-37). A deployment taken
@@ -138,7 +141,8 @@ create table if not exists requests (
   key_id              uuid references virtual_keys(id),
   time_to_first_token integer,
   -- Null for requests refused before a deployment was chosen.
-  deployment_id       uuid references model_deployments(id)
+  deployment_id       uuid references model_deployments(id),
+  attempt_count       integer check (attempt_count >= 0)
 );
 
 create table if not exists audits (

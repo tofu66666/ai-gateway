@@ -15,13 +15,19 @@ from tests.test_gateway_routing import EAST, ERROR, TWO, record_calls
 @pytest.mark.parametrize("status", [429, 500, 502, 503])
 def test_provider_errors_count_towards_cooldown(monkeypatch, status):
     fake_auth(monkeypatch, deployments=[EAST])
-    fake_log(monkeypatch)
-    record_calls(monkeypatch, httpx.Response(status, json=ERROR))
+    logged = fake_log(monkeypatch)
+    calls = record_calls(monkeypatch, httpx.Response(status, json=ERROR))
 
-    for _ in range(3):
-        post()
+    for count in range(3):
+        assert post().status_code == status
+        assert len(calls) == (count + 1) * 4
+        if count < 2:
+            assert load_balancer.balancer.cooldown_left("d-east") == 0
 
     assert load_balancer.balancer.cooldown_left("d-east") > 0
+    assert post().status_code == 503
+    assert len(calls) == 12
+    assert [row["attempt_count"] for row in logged] == [4, 4, 4, 0]
 
 
 @pytest.mark.parametrize("error", [httpx.ReadTimeout("slow"), httpx.ConnectError("down")])
@@ -36,27 +42,32 @@ def test_timeouts_and_outages_count_towards_cooldown(monkeypatch, error):
     assert load_balancer.balancer.cooldown_left("d-east") > 0
 
 
-def test_rejected_deployment_key_counts_towards_cooldown(monkeypatch):
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_deployment_key_counts_towards_cooldown(monkeypatch, status):
     fake_auth(monkeypatch, deployments=[EAST])
-    fake_log(monkeypatch)
-    record_calls(monkeypatch, httpx.Response(401, json=ERROR))
+    logged = fake_log(monkeypatch)
+    calls = record_calls(monkeypatch, httpx.Response(status, json=ERROR))
 
     for _ in range(3):
         assert post().status_code == 502
 
     assert load_balancer.balancer.cooldown_left("d-east") > 0
+    assert len(calls) == 3
+    assert [row["attempt_count"] for row in logged] == [1, 1, 1]
 
 
 @pytest.mark.parametrize("status", [400, 404, 422])
 def test_client_errors_do_not_count_towards_cooldown(monkeypatch, status):
     fake_auth(monkeypatch, deployments=[EAST])
-    fake_log(monkeypatch)
-    record_calls(monkeypatch, httpx.Response(status, json=ERROR))
+    logged = fake_log(monkeypatch)
+    calls = record_calls(monkeypatch, httpx.Response(status, json=ERROR))
 
     for _ in range(5):
-        post()
+        assert post().status_code == status
 
     assert load_balancer.balancer.cooldown_left("d-east") == 0
+    assert len(calls) == 5
+    assert [row["attempt_count"] for row in logged] == [1]*5
 
 
 def test_failing_deployment_leaves_rotation(monkeypatch):

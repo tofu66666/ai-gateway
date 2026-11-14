@@ -118,6 +118,27 @@ docker compose exec backend python loadtest/split_test.py --key mq-k_... --model
 
 `STUB_DELAYS` sets how slowly each path answers (default `fast=0.01,slow=0.2`). `tests/test_load_split.py` runs the same check in CI without Supabase.
 
+### Alias retries (H18IALMOND-23)
+
+Admins read or replace an alias's complete policy with
+`GET /models/{id}/resilience` and `PUT /models/{id}/resilience`:
+
+```json
+{"retry_count": 3, "retry_backoff_seconds": [1, 2, 4], "timeout_seconds": 30}
+```
+
+- Defaults allow four total attempts on the same deployment. Each attempt uses
+  the alias's HTTPX timeout, including Ollama; this is not a total request deadline.
+- Network failures, timeouts and upstream 429/500/502/503/504 are retried.
+  A stream is only retried before it starts, never after output begins.
+- Set `retry_count` to 0 and `retry_backoff_seconds` to `[]` to disable retries.
+- Only the final result is logged and counted towards cooldown. `attempt_count`
+  includes the first call; refusals before an upstream call record 0. Latency
+  includes retry waits, and project spend is updated once for the final result.
+- `/health` adds `cooling_deployments` with deployment/model IDs and remaining
+  seconds. Database health still determines its HTTP status. The admin deployment
+  endpoint continues to expose `cooldown_seconds` for the routing page.
+
 ## Working on the dashboard
 
 The frontend container serves a static build. For live updates, keep Compose running and start Vite in a second terminal, from the repo root:
@@ -185,7 +206,7 @@ On macOS or Linux, use Python 3.12 to create the venv and replace `.venv\Scripts
 
 `pytest.ini` adds `backend/` to the import path, so tests can use `from app...`. `db.py` creates the Supabase client at import time; set test configuration and mock client creation before importing `app.main` in route tests.
 
-Backend tests mock the Supabase client: `test_auth.py` covers `/register` and `test_models.py` covers `/models`. Nothing runs against a real database yet.
+Backend tests mock the Supabase client and the providers; nothing runs against a real database. See [Testing in the README](README.md#testing) for the approach, coverage, and the Cypress tests.
 
 ## Git workflow
 

@@ -3,15 +3,23 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { MAX_PROMPT_LENGTH } from './masterPrompt'
 
-// The master prompt box of the Add model and Edit master prompt forms.
+// Focus with the caret after the text, for an editor that opens on the box.
+function focusAtEnd(box: HTMLTextAreaElement | null) {
+  box?.focus()
+  box?.setSelectionRange(box.value.length, box.value.length)
+}
+
+// The master prompt box of the Add model form and the master prompt editor.
 export function PromptField({
   id,
   value,
   onChange,
+  autoFocus,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
+  autoFocus?: boolean
 }) {
   const tooLong = value.length > MAX_PROMPT_LENGTH
 
@@ -35,6 +43,7 @@ export function PromptField({
         placeholder="Optional, for example: Answer in plain English. Do not write code."
         aria-invalid={tooLong}
         aria-describedby={`${id}-hint`}
+        ref={autoFocus ? focusAtEnd : undefined}
         className="max-h-60"
       />
       <p

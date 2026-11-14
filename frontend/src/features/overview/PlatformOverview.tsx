@@ -1,24 +1,14 @@
-import { Info } from 'lucide-react'
 import type { RequestRow } from '@/api/requests'
 import { ErrorState } from '@/components/layout/ErrorState'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { SkeletonLines } from '@/components/layout/Placeholders'
+import { Card, CardContent } from '@/components/ui/card'
 import { costsByBucket } from '@/features/breakdown/aggregate'
 import { SpendChart } from '@/features/breakdown/SpendChart'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { requestMetrics } from './metrics'
+import { StatCard } from './StatCard'
 import { TeamBudgets } from './TeamBudgets'
 import { TopConsumers } from './TopConsumers'
 
@@ -31,44 +21,6 @@ const percent = new Intl.NumberFormat('en-US', {
 // "640 ms" under a second, "1.9 s" from there.
 function formatLatency(ms: number) {
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
-}
-
-function StatCard({
-  label,
-  hint,
-  value,
-  detail,
-}: {
-  label: string
-  hint?: string
-  value: string
-  detail: string
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardDescription className="flex items-center gap-1">
-          {label}
-          {hint && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`What ${label} means`}
-                  className="rounded-full outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                  <Info className="size-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-64">{hint}</TooltipContent>
-            </Tooltip>
-          )}
-        </CardDescription>
-        <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
-        <p className="text-sm text-muted-foreground">{detail}</p>
-      </CardHeader>
-    </Card>
-  )
 }
 
 // H18IALMOND-26: the admin's view of every team in the chosen window (3.b
@@ -86,7 +38,6 @@ export function PlatformOverview({
   const buckets = costsByBucket(shown, 'team', 'day', windowStart(timeWindow))
   const days = Math.max(1, buckets.length)
   const empty = metrics.requests === 0
-  const ready = (value: string) => (isPending ? '—' : value)
 
   return (
     <section className="space-y-4">
@@ -102,52 +53,54 @@ export function PlatformOverview({
         <ErrorState title="Couldn't load every team's usage" error={error} />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
+          pending={isPending}
           label="Total spend"
-          value={ready(formatMoney(metrics.spend))}
-          detail={ready(`${formatMoney(metrics.spend / days)} per day`)}
+          value={formatMoney(metrics.spend)}
+          detail={`${formatMoney(metrics.spend / days)} per day`}
         />
         <StatCard
+          pending={isPending}
           label="Requests"
-          value={ready(metrics.requests.toLocaleString('en-US'))}
-          detail={ready(`${perDay.format(metrics.requests / days)} per day`)}
+          value={metrics.requests.toLocaleString('en-US')}
+          detail={`${perDay.format(metrics.requests / days)} per day`}
         />
         <StatCard
+          pending={isPending}
           label="Error rate"
           hint="Requests that got no answer: refused by a budget or rate limit, or failed at the provider."
-          value={ready(
+          value={
             metrics.errorRate === null
               ? 'No data'
-              : percent.format(metrics.errorRate),
-          )}
-          detail={ready(
+              : percent.format(metrics.errorRate)
+          }
+          detail={
             empty
               ? 'No requests'
-              : `${metrics.failed.toLocaleString('en-US')} failed`,
-          )}
+              : `${metrics.failed.toLocaleString('en-US')} failed`
+          }
         />
         <StatCard
+          pending={isPending}
           label="Latency p95"
           hint="95% of requests were answered faster than this. p50 is the typical time: half were faster."
-          value={ready(
-            metrics.p95 === null ? 'No data' : formatLatency(metrics.p95),
-          )}
-          detail={ready(
+          value={metrics.p95 === null ? 'No data' : formatLatency(metrics.p95)}
+          detail={
             metrics.p50 === null
               ? 'No latency recorded'
-              : `p50 ${formatLatency(metrics.p50)}`,
-          )}
+              : `p50 ${formatLatency(metrics.p50)}`
+          }
         />
       </div>
 
       <Card>
         <CardContent>
-          {isPending || empty ? (
+          {isPending ? (
+            <SkeletonLines rows={1} className="h-48" />
+          ) : empty ? (
             <p className="flex min-h-24 items-center justify-center text-center text-sm text-muted-foreground">
-              {isPending
-                ? 'Loading spend per day...'
-                : 'No requests in this period, so nothing has been spent.'}
+              No requests in this period, so nothing has been spent.
             </p>
           ) : (
             <SpendChart

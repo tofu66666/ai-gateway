@@ -1,9 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Crown, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { queryKeys, useTeamMembers } from '@/api/hooks'
-import { removeTeamMember, saveTeamMember, type TeamMember } from '@/api/teams'
+import {
+  changeTeamOwner,
+  removeTeamMember,
+  saveTeamMember,
+  type TeamMember,
+} from '@/api/teams'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +46,8 @@ import { useCanManageTeam } from './useCanManageTeam'
 type PermissionChange = { member: TeamMember; canCreateKey: boolean }
 
 // H18IALMOND-51: the team lead (or an admin) decides who is in the team and
-// who may create keys.
+// who may create keys. H18IALMOND-65: they can also hand the team to another
+// member.
 export function MembersCard({ teamId }: { teamId: string }) {
   const members = useTeamMembers(teamId)
   const queryClient = useQueryClient()
@@ -80,6 +87,23 @@ export function MembersCard({ teamId }: { teamId: string }) {
     onError: (error) => toast.error(error.message),
   })
 
+  // The backend says why it refuses, for example when the member does not
+  // have the team lead role.
+  const lead = useMutation({
+    mutationFn: (member: TeamMember) => changeTeamOwner(teamId, member.user_id),
+    onSuccess: (_, member) => {
+      toast.success(`${member.email} now leads the team`)
+      // Who leads a team also decides the Overview's team usage and budgets.
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.members(teamId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.teamUsage([]) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.teamBudgets([]) }),
+      ])
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const busy = permission.isPending || remove.isPending || lead.isPending
+
   return (
     <Card>
       <CardHeader>
@@ -99,9 +123,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
         )}
       </CardHeader>
       <CardContent>
-        {members.isPending && (
-          <p className="text-sm text-muted-foreground">Loading members...</p>
-        )}
+        {members.isPending && <SkeletonLines rows={3} />}
         {members.isError && (
           <ErrorState title="Couldn't load the members" error={members.error} />
         )}
@@ -120,7 +142,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
                 </TableHead>
                 {canManage && (
                   <TableHead className="w-12">
-                    <span className="sr-only">Remove</span>
+                    <span className="sr-only">Actions</span>
                   </TableHead>
                 )}
               </TableRow>
@@ -147,9 +169,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
                           ? saving.canCreateKey
                           : member.can_create_key
                       }
-                      disabled={
-                        !canManage || member.is_owner || permission.isPending
-                      }
+                      disabled={!canManage || member.is_owner || busy}
                       onCheckedChange={(checked) =>
                         permission.mutate({ member, canCreateKey: checked })
                       }
@@ -158,11 +178,18 @@ export function MembersCard({ teamId }: { teamId: string }) {
                   {canManage && (
                     <TableCell className="text-right">
                       {!member.is_owner && (
-                        <RemoveButton
-                          email={member.email}
-                          disabled={remove.isPending}
-                          onConfirm={() => remove.mutate(member)}
-                        />
+                        <div className="flex justify-end gap-1">
+                          <MakeLeadButton
+                            email={member.email}
+                            disabled={busy}
+                            onConfirm={() => lead.mutate(member)}
+                          />
+                          <RemoveButton
+                            email={member.email}
+                            disabled={busy}
+                            onConfirm={() => remove.mutate(member)}
+                          />
+                        </div>
                       )}
                     </TableCell>
                   )}
@@ -176,13 +203,47 @@ export function MembersCard({ teamId }: { teamId: string }) {
   )
 }
 
-type RemoveButtonProps = {
+type MemberActionProps = {
   email: string
   disabled: boolean
   onConfirm: () => void
 }
 
-function RemoveButton({ email, disabled, onConfirm }: RemoveButtonProps) {
+function MakeLeadButton({ email, disabled, onConfirm }: MemberActionProps) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Make ${email} the team lead`}
+          disabled={disabled}
+        >
+          <Crown />
+          <span className="hidden sm:inline">Make lead</span>
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Make {email} the team lead?</AlertDialogTitle>
+          <AlertDialogDescription>
+            They will manage this team's members, projects and budget. The
+            current lead stays in the team as a member. Only someone with the
+            team lead or admin role can lead a team.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>
+            Make team lead
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function RemoveButton({ email, disabled, onConfirm }: MemberActionProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>

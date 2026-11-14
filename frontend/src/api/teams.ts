@@ -74,25 +74,29 @@ export function removeTeamMember(teamId: string, userId: string) {
   })
 }
 
-// Change the owner of an existing team.
+// Transfer team ownership.
 // Backend: PUT /team/change_owner
 export type ChangeTeamOwnerRequest = {
   team_id: string
   new_owner_id: string
 }
 
-export type ChangeTeamOwnerResponse = {
-  name: string
-  owner_id: string
+export type OwnerChange = {
+  status: string
+  team_id: string
+  new_owner_id: string
 }
 
+// Keep the object argument used by ChangeTeamLeadDialog.
+// The backend validates whether the new owner is eligible.
 export function changeTeamOwner(change: ChangeTeamOwnerRequest) {
-  return apiFetch<ChangeTeamOwnerResponse>('/team/change_owner', {
+  return apiFetch<OwnerChange>('/team/change_owner', {
     method: 'PUT',
     body: change,
   })
 }
 
+// Every request in the team's projects, for its lead or an admin.
 export function getTeamRequests(teamId: string) {
   return apiFetch<RequestRow[]>(
     `/team/${encodeURIComponent(teamId)}/requests`,
@@ -129,6 +133,7 @@ export async function getTeamUsage(
   const usage = await Promise.all(
     teams.map(async (team): Promise<TeamUsage | null> => {
       const members = await getTeamMembers(team.id)
+
       const leads =
         isAdmin ||
         members.some(

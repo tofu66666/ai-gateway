@@ -21,7 +21,7 @@ COMP_REPLY={"choices": [{"text": "done"}], "usage": {"prompt_tokens": 5, "comple
 def capture_prov(monkeypatch, reply):
     sent={}
 
-    def fake_call(provider, endpoint, body):
+    def fake_call(provider, endpoint, body, timeout=None):
         sent.update(provider=provider, endpoint=endpoint, body=body)
         return httpx.Response(200, json=reply)
     

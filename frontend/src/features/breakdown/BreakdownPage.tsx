@@ -10,9 +10,11 @@ import { useSearchParams } from 'react-router'
 
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonRows } from '@/components/layout/Placeholders'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -28,7 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatMoney } from '@/lib/format'
+import { formatMoney, formatShare } from '@/lib/format'
 import { timeWindows, useTimeWindow, windowStart } from '@/lib/time-window'
 import { cn } from '@/lib/utils'
 import {
@@ -281,28 +283,27 @@ export function BreakdownPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle>
-                Spending by {groupLabels[groupBy].toLowerCase()}
-              </CardTitle>
-              <CardDescription>
-                Day, week and month change only the chart; rows total the whole
-                period. Every request counts for the user who made it and for
-                the team that owns its project.
-              </CardDescription>
-            </div>
-
+          <CardTitle>
+            Spending by {groupLabels[groupBy].toLowerCase()}
+          </CardTitle>
+          {/* A request counts for the user who made it and for the team that
+              owns its project. */}
+          <CardDescription>
+            The chart splits the period by day, week or month; the table totals
+            it.
+          </CardDescription>
+          <CardAction>
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={exportCsv}
               disabled={isPending || sorted.length === 0}
             >
               <Download aria-hidden className="size-4" />
               Export CSV
             </Button>
-          </div>
+          </CardAction>
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -365,6 +366,8 @@ export function BreakdownPage() {
               series={series}
               other={other}
               granularity={granularity}
+              nameOf={(key) => nameOf(groupBy, key)}
+              groupLabel={groupLabels[groupBy].toLowerCase()}
             />
           )}
 
@@ -393,17 +396,16 @@ export function BreakdownPage() {
             </TableHeader>
 
             <TableBody>
-              {(isPending || groups.length === 0) && (
+              {isPending && <SkeletonRows columns={6} rows={3} />}
+              {!isPending && groups.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={6}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    {isPending
-                      ? 'Loading usage...'
-                      : filtersOn
-                        ? 'No requests match these filters in this period.'
-                        : 'No requests in this period.'}
+                    {filtersOn
+                      ? 'No requests match these filters in this period.'
+                      : 'No requests in this period.'}
                   </TableCell>
                 </TableRow>
               )}
@@ -513,7 +515,7 @@ function TotalCells({ total, spent }: { total: GroupTotal; spent: boolean }) {
         {formatMoney(total.cost)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {spent ? `${Math.round(total.share * 100)}%` : '—'}
+        {spent ? formatShare(total.share) : '—'}
       </TableCell>
     </>
   )

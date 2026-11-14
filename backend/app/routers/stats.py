@@ -7,7 +7,7 @@ from app.routers.db import supabase
 
 router = APIRouter(tags=["stats"])
 
-REQUEST_COLUMNS = "id, project_id, model_id, user_id, input_tokens, output_tokens, cost, status, latency, created_at"
+REQUEST_COLUMNS = "id, project_id, model_id, user_id, input_tokens, output_tokens, cost, status, latency, created_at, attempt_count"
 
 
 def iso_utc(epoch_seconds: int) -> str:

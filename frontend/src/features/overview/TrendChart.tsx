@@ -1,5 +1,4 @@
-import { scaleLinear, scaleTime } from 'd3-scale'
-import { area, line } from 'd3-shape'
+import { scaleBand, scaleLinear } from 'd3-scale'
 import {
   useEffect,
   useRef,
@@ -63,12 +62,16 @@ const order: Measure[] = ['spend', 'requests', 'tokens']
 
 const height = 208
 const margin = { top: 12, right: 16, bottom: 28, left: 56 }
-const halfDay = 12 * 60 * 60 * 1000
+// A column is at most 24 px wide, keeps a 2 px gap to the next one, and a
+// day with anything in it stands at least 2 px tall.
+const widest = 24
+const gap = 2
+const lowest = 2
 
 // The client asked for better charts and suggested D3.js (client meeting, Tue
-// 10 Nov 2026): spend, requests or tokens day by day, with the Overview's
-// filters and time period. D3 works out the scales and the line; React draws
-// the SVG.
+// 10 Nov 2026): spend, requests or tokens day by day, one column per day,
+// with the Overview's filters and time period. D3 works out the scales; React
+// draws the SVG.
 export function TrendChart({
   description,
   rows,
@@ -120,8 +123,23 @@ export function TrendChart({
   )
 }
 
-// The line, with a crosshair that snaps to the nearest day under the pointer
-// or the arrow keys, and a table for screen readers.
+// A column with rounded top corners, square on the baseline.
+function columnPath(left: number, top: number, width: number, bottom: number) {
+  const r = Math.min(4, width / 2, bottom - top)
+  return [
+    `M${left},${bottom}`,
+    `V${top + r}`,
+    `A${r},${r} 0 0 1 ${left + r},${top}`,
+    `H${left + width - r}`,
+    `A${r},${r} 0 0 1 ${left + width},${top + r}`,
+    `V${bottom}`,
+    'Z',
+  ].join('')
+}
+
+// One column per day, quiet days left empty. The day under the pointer or
+// the arrow keys is shaded, with its figures beside it; a table carries every
+// day for screen readers.
 function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
   const box = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -139,19 +157,11 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
 
   const plotWidth = Math.max(0, width - margin.left - margin.right)
   const plotHeight = height - margin.top - margin.bottom
-  const first = days[0].day
-  const last = days[days.length - 1].day
-  // A single day sits in the middle.
-  const x = scaleTime()
-    .domain(
-      days.length > 1
-        ? [first, last]
-        : [
-            new Date(first.getTime() - halfDay),
-            new Date(first.getTime() + halfDay),
-          ],
-    )
+  const x = scaleBand<number>()
+    .domain(days.map((day) => day.day.getTime()))
     .range([0, plotWidth])
+  const band = x.bandwidth()
+  const columnWidth = Math.max(1, Math.min(widest, band - gap))
   const y = scaleLinear()
     .domain([0, Math.max(...days.map((day) => day[measure])) || 1])
     .nice(3)
@@ -167,22 +177,16 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
       : compactAxis
         ? compact.format(value)
         : whole.format(value)
-  const xOf = (day: DayTotals) => x(day.day)
-  const yOf = (day: DayTotals) => y(day[measure])
-  const path = line<DayTotals>(xOf, yOf)(days) ?? ''
-  const wash = area<DayTotals>(xOf, plotHeight, yOf)(days) ?? ''
+  const leftOf = (day: DayTotals) => x(day.day.getTime()) ?? 0
+  const centreOf = (day: DayTotals) => leftOf(day) + band / 2
+  const topOf = (day: DayTotals) =>
+    Math.min(y(day[measure]), plotHeight - lowest)
   // About one date every 72 px.
   const every = Math.ceil(days.length / Math.max(2, Math.floor(plotWidth / 72)))
 
   function pointAt(event: PointerEvent<SVGRectElement>) {
     const at = event.clientX - event.currentTarget.getBoundingClientRect().left
-    let nearest = 0
-    days.forEach((day, index) => {
-      if (Math.abs(xOf(day) - at) < Math.abs(xOf(days[nearest]) - at)) {
-        nearest = index
-      }
-    })
-    setActive(nearest)
+    setActive(Math.max(0, Math.min(days.length - 1, Math.floor(at / band))))
   }
 
   function handleKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -199,8 +203,8 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
   }
 
   const point = active === null ? null : days[active]
-  const pointX = point ? margin.left + xOf(point) : 0
-  // The readout sits beside the crosshair, on the side with room.
+  const pointX = point ? margin.left + centreOf(point) : 0
+  // The readout sits beside the shaded day, on the side with room.
   const readoutLeft = pointX < width - 180
 
   return (
@@ -238,21 +242,39 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
               </g>
             ))}
 
+            {point && (
+              <rect
+                x={leftOf(point)}
+                width={band}
+                height={plotHeight}
+                rx={4}
+                fill="var(--muted-foreground)"
+                fillOpacity={0.08}
+              />
+            )}
+
+            {days.map((day) =>
+              day[measure] > 0 ? (
+                <path
+                  key={day.day.getTime()}
+                  d={columnPath(
+                    centreOf(day) - columnWidth / 2,
+                    topOf(day),
+                    columnWidth,
+                    plotHeight,
+                  )}
+                  fill="var(--chart-1)"
+                />
+              ) : null,
+            )}
+
             {days.map((day, index) =>
               index % every === 0 ? (
                 <text
                   key={day.day.getTime()}
-                  x={xOf(day)}
+                  x={centreOf(day)}
                   y={plotHeight + 18}
-                  textAnchor={
-                    days.length === 1
-                      ? 'middle'
-                      : index === 0
-                        ? 'start'
-                        : xOf(day) > plotWidth - 24
-                          ? 'end'
-                          : 'middle'
-                  }
+                  textAnchor="middle"
                   fill="var(--muted-foreground)"
                 >
                   {dayMonth.format(day.day)}
@@ -260,45 +282,7 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
               ) : null,
             )}
 
-            <path d={wash} fill="var(--chart-1)" fillOpacity={0.1} />
-            <path
-              d={path}
-              fill="none"
-              stroke="var(--chart-1)"
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {days.length === 1 && (
-              <circle
-                cx={xOf(days[0])}
-                cy={yOf(days[0])}
-                r={4}
-                fill="var(--chart-1)"
-              />
-            )}
-
-            {point && (
-              <>
-                <line
-                  x1={xOf(point)}
-                  x2={xOf(point)}
-                  y2={plotHeight}
-                  stroke="var(--muted-foreground)"
-                  strokeOpacity={0.5}
-                />
-                <circle
-                  cx={xOf(point)}
-                  cy={yOf(point)}
-                  r={4}
-                  fill="var(--chart-1)"
-                  stroke="var(--card)"
-                  strokeWidth={2}
-                />
-              </>
-            )}
-
-            {/* The whole plot is the hit area: the crosshair finds the day. */}
+            {/* The whole plot is the hit area: each day owns its band. */}
             <rect
               width={plotWidth}
               height={plotHeight}
@@ -322,15 +306,12 @@ function Plot({ days, measure }: { days: DayTotals[]; measure: Measure }) {
           style={{
             left: pointX,
             transform: readoutLeft
-              ? 'translateX(12px)'
-              : 'translateX(calc(-100% - 12px))',
+              ? `translateX(${band / 2 + 8}px)`
+              : `translateX(calc(-100% - ${band / 2 + 8}px))`,
           }}
         >
           <p className="flex items-center gap-2 font-medium tabular-nums">
-            <span
-              aria-hidden
-              className="h-0.5 w-3 rounded-full bg-(--chart-1)"
-            />
+            <span aria-hidden className="size-2 rounded-xs bg-(--chart-1)" />
             {measures[measure].format(point[measure])}
           </p>
           <p className="tabular-nums opacity-70">

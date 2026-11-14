@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { BudgetBar } from './BudgetBar'
 import { type BudgetState, teamBudgetRows } from './metrics'
 
 // Each state has a dot and words, so it never rests on colour alone.
@@ -74,20 +75,12 @@ export function TeamBudgets() {
                   </span>
                 </div>
                 {row.usage !== null && (
-                  <div
-                    aria-hidden
-                    title={`Alert at ${Math.round(row.threshold * 100)}%`}
-                    className="relative ml-4.5 h-1.5 rounded-full bg-muted"
-                  >
-                    <div
-                      className={cn('h-full rounded-full', look[row.state][0])}
-                      style={{ width: `${Math.min(row.usage, 1) * 100}%` }}
-                    />
-                    <div
-                      className="absolute -inset-y-0.5 w-0.5 rounded-full bg-foreground/60"
-                      style={{ left: `${row.threshold * 100}%` }}
-                    />
-                  </div>
+                  <BudgetBar
+                    usage={row.usage}
+                    threshold={row.threshold}
+                    state={row.state}
+                    className="ml-4.5"
+                  />
                 )}
                 {row.cutOff > 0 && (
                   <p className="ml-4.5 flex items-center gap-1.5 text-destructive">

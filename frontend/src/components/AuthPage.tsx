@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { Logo } from '@/components/layout/Logo'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -78,7 +79,8 @@ function AuthPage() {
   return (
     <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4 sm:p-6">
       <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
+        <CardHeader className="justify-items-center text-center">
+          <Logo className="mb-2 size-10" />
           <h1 className="text-2xl font-semibold">AI Gateway</h1>
           <CardDescription>
             {isRegister

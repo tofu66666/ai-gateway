@@ -7,6 +7,7 @@ import { isChatModel } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { SkeletonRows } from '@/components/layout/Placeholders'
+import { StatusBadge } from '@/components/layout/StatusBadge'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +19,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -45,14 +45,13 @@ import { KeySnippet } from '@/features/keys/KeySnippet'
 import { RotateKeyDialog } from '@/features/keys/RotateKeyDialog'
 import { CreateKeyDialog } from '@/features/playground/CreateKeyDialog'
 import { formatDate } from '@/lib/format'
+import type { Tone } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
-function statusVariant(status: string) {
-  return status === 'active'
-    ? 'secondary'
-    : status === 'revoked'
-      ? 'destructive'
-      : 'outline'
+const statusTones: Record<string, Tone> = {
+  active: 'success',
+  revoked: 'error',
+  expired: 'neutral',
 }
 
 export function KeysPage() {
@@ -167,9 +166,9 @@ export function KeysPage() {
                   <TableCell>{formatDate(key.expires_at)}</TableCell>
 
                   <TableCell>
-                    <Badge variant={statusVariant(key.status)}>
-                      {key.status}
-                    </Badge>
+                    <StatusBadge tone={statusTones[key.status] ?? 'neutral'}>
+                      {key.status.charAt(0).toUpperCase() + key.status.slice(1)}
+                    </StatusBadge>
                   </TableCell>
 
                   <TableCell>

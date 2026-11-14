@@ -279,245 +279,255 @@ export function PlaygroundPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Key and model</CardTitle>
-          <CardDescription>
-            Enter your virtual key, then pick one of the models it can use. The
-            key's project pays for every message.
-          </CardDescription>
-          <CardAction>
-            <CreateKeyDialog
-              onUse={setVirtualKey}
-              onCreated={() =>
-                queryClient.invalidateQueries({ queryKey: queryKeys.keys })
-              }
-            />
-          </CardAction>
-        </CardHeader>
+      {/* On a laptop the settings sit beside the chat, so the conversation
+          stays on screen. */}
+      <div className="grid items-start gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <Card className="lg:sticky lg:top-20">
+          <CardHeader>
+            <CardTitle>Key and model</CardTitle>
+            <CardDescription>
+              Paste a key, then pick one of its models. Its project pays.
+            </CardDescription>
+            <CardAction>
+              <CreateKeyDialog
+                onUse={setVirtualKey}
+                onCreated={() =>
+                  queryClient.invalidateQueries({ queryKey: queryKeys.keys })
+                }
+              />
+            </CardAction>
+          </CardHeader>
 
-        <CardContent className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="virtual-key">Virtual API Key</Label>
-            <Input
-              id="virtual-key"
-              type="password"
-              value={virtualKey}
-              onChange={(event) => setVirtualKey(event.target.value)}
-              placeholder="Enter virtual API key"
-              aria-describedby="key-models"
-            />
-            <KeyHint
-              id="key-models"
-              check={check}
-              typed={virtualKey.trim().length >= KEY_PREFIX_LENGTH}
-              checking={keys.isFetching || projects.isFetching}
-              failed={keys.isError || projects.isError}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="model">Model</Label>
-            <Select value={model?.id ?? ''} onValueChange={setModelId}>
-              <SelectTrigger id="model" className="w-full">
-                <SelectValue placeholder="Select model" />
-              </SelectTrigger>
-              <SelectContent>
-                {choices.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    <span className="flex items-center gap-2">
-                      {option.alias}
-                      <ProcessedIn model={option} />
-                      <MasterPromptMark model={option} />
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {model && hasMasterPrompt(model) && (
-              <p className="text-xs text-muted-foreground">
-                An admin set a master prompt for this model: it goes before your
-                messages and counts as input tokens.
-              </p>
-            )}
-            {models.isError && (
-              <p className="text-sm text-destructive">{models.error.message}</p>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Switch
-              id="stream"
-              checked={stream}
-              onCheckedChange={setStream}
-              disabled={send.isPending}
-            />
-            <Label htmlFor="stream">Stream the response</Label>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="truncate">
-            {chat?.title ?? 'New chat'}
-          </CardTitle>
-          <CardDescription>
-            Prompts and responses are stored on the platform for auditing and
-            security review. Your chats are also kept in this browser for{' '}
-            {KEEP_DAYS} days, the newest {KEEP_CHATS} of them; your key is not.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={chat?.id ?? ''}
-              onValueChange={openChat}
-              disabled={send.isPending || chats.length === 0}
-            >
-              <SelectTrigger
-                aria-label="Recent chats"
-                className="w-full sm:w-72"
-              >
-                <SelectValue
-                  placeholder={
-                    chats.length > 0
-                      ? 'Open a recent chat'
-                      : 'No saved chats yet'
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {chats.map((saved) => (
-                  <SelectItem key={saved.id} value={saved.id}>
-                    <span className="flex items-center gap-2">
-                      <span className="truncate">{saved.title}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(saved.updatedAt)}
-                      </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={startNewChat}
-              disabled={send.isPending || chatId === null}
-            >
-              <MessageSquarePlus />
-              New chat
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Delete this chat"
-                  disabled={!chat || send.isPending}
-                >
-                  <Trash2 />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    It is removed from this browser. The platform's request log
-                    still keeps its requests.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={deleteChat}>
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-
-          <div
-            ref={transcript}
-            className="max-h-[32rem] overflow-y-auto rounded-md border p-4"
-          >
-            <ChatTranscript turns={turns} pending={pending} />
-          </div>
-
-          {send.isError && (
+          <CardContent className="space-y-5">
             <div className="space-y-2">
-              <GatewayAlert error={send.error} />
-              {liveText && (
-                <div className="rounded-md border border-dashed px-3 py-2 text-sm whitespace-pre-wrap text-muted-foreground">
-                  {liveText}
-                </div>
+              <Label htmlFor="virtual-key">Virtual API key</Label>
+              <Input
+                id="virtual-key"
+                type="password"
+                value={virtualKey}
+                onChange={(event) => setVirtualKey(event.target.value)}
+                placeholder="Enter virtual API key"
+                aria-describedby="key-models"
+              />
+              <KeyHint
+                id="key-models"
+                check={check}
+                typed={virtualKey.trim().length >= KEY_PREFIX_LENGTH}
+                checking={keys.isFetching || projects.isFetching}
+                failed={keys.isError || projects.isError}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="model">Model</Label>
+              <Select value={model?.id ?? ''} onValueChange={setModelId}>
+                <SelectTrigger id="model" className="w-full">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {choices.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      <span className="flex items-center gap-2">
+                        {option.alias}
+                        <ProcessedIn model={option} />
+                        <MasterPromptMark model={option} />
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {model && hasMasterPrompt(model) && (
+                <p className="text-xs text-muted-foreground">
+                  An admin set a master prompt for this model: it goes before
+                  your messages and counts as input tokens.
+                </p>
+              )}
+              {models.isError && (
+                <p className="text-sm text-destructive">
+                  {models.error.message}
+                </p>
               )}
             </div>
-          )}
 
-          {answers > 0 && (
-            <p className="text-xs text-muted-foreground">
-              This chat so far: {answers} {answers === 1 ? 'answer' : 'answers'}
-              , {totals.inputTokens} tokens in, {totals.outputTokens} out,{' '}
-              {formatMoney(totals.cost)}. Each message sends the whole chat
-              again, so long chats use more input tokens.
-            </p>
-          )}
-          {!stored && (
-            <p className="text-xs text-destructive">
-              This browser could not keep the chat, so it is lost when the page
-              reloads.
-            </p>
-          )}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="stream"
+                checked={stream}
+                onCheckedChange={setStream}
+                disabled={send.isPending}
+              />
+              <Label htmlFor="stream">Stream the response</Label>
+            </div>
+          </CardContent>
+        </Card>
 
-          <div className="space-y-2">
-            <Label htmlFor="prompt">Message</Label>
-            <Textarea
-              id="prompt"
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Write a message..."
-              className="min-h-20"
-              aria-describedby="prompt-help"
-            />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p id="prompt-help" className="text-xs text-muted-foreground">
-                Enter sends; Shift+Enter starts a new line.
-              </p>
-              <div className="flex gap-2">
-                {streaming && (
-                  <Button
-                    variant="outline"
-                    onClick={() => stop.current?.abort()}
-                  >
-                    <Square />
-                    Stop
-                  </Button>
-                )}
-                <Button
-                  onClick={handleSend}
-                  disabled={
-                    send.isPending ||
-                    !model ||
-                    !virtualKey.trim() ||
-                    !prompt.trim()
-                  }
+        <Card>
+          <CardHeader>
+            <CardTitle className="truncate">
+              {chat?.title ?? 'New chat'}
+            </CardTitle>
+            <CardDescription>
+              Prompts and responses are stored on the platform for auditing and
+              security review. Your chats are also kept in this browser for{' '}
+              {KEEP_DAYS} days, the newest {KEEP_CHATS} of them; your key is
+              not.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={chat?.id ?? ''}
+                onValueChange={openChat}
+                disabled={send.isPending || chats.length === 0}
+              >
+                <SelectTrigger
+                  aria-label="Recent chats"
+                  className="w-full sm:w-72"
                 >
-                  <Send />
-                  {streaming
-                    ? 'Streaming...'
-                    : send.isPending
-                      ? 'Sending...'
-                      : 'Send'}
-                </Button>
+                  <SelectValue
+                    placeholder={
+                      chats.length > 0
+                        ? 'Open a recent chat'
+                        : 'No saved chats yet'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {chats.map((saved) => (
+                    <SelectItem key={saved.id} value={saved.id}>
+                      <span className="flex items-center gap-2">
+                        <span className="truncate">{saved.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(saved.updatedAt)}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={startNewChat}
+                disabled={send.isPending || chatId === null}
+              >
+                <MessageSquarePlus />
+                New chat
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Delete this chat"
+                    disabled={!chat || send.isPending}
+                  >
+                    <Trash2 />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      It is removed from this browser. The platform's request
+                      log still keeps its requests.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      onClick={deleteChat}
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+
+            <div
+              ref={transcript}
+              className="max-h-[32rem] min-h-64 overflow-y-auto rounded-md border p-4"
+            >
+              <ChatTranscript turns={turns} pending={pending} />
+            </div>
+
+            {send.isError && (
+              <div className="space-y-2">
+                <GatewayAlert error={send.error} />
+                {liveText && (
+                  <div className="rounded-md border border-dashed px-3 py-2 text-sm whitespace-pre-wrap text-muted-foreground">
+                    {liveText}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {answers > 0 && (
+              <p className="text-xs text-muted-foreground">
+                This chat so far: {answers}{' '}
+                {answers === 1 ? 'answer' : 'answers'}, {totals.inputTokens}{' '}
+                tokens in, {totals.outputTokens} out, {formatMoney(totals.cost)}
+                . Each message sends the whole chat again, so long chats use
+                more input tokens.
+              </p>
+            )}
+            {!stored && (
+              <p className="text-xs text-destructive">
+                This browser could not keep the chat, so it is lost when the
+                page reloads.
+              </p>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="prompt">Message</Label>
+              <Textarea
+                id="prompt"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Write a message..."
+                className="min-h-20"
+                aria-describedby="prompt-help"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p id="prompt-help" className="text-xs text-muted-foreground">
+                  Enter sends; Shift+Enter starts a new line.
+                </p>
+                <div className="flex gap-2">
+                  {streaming && (
+                    <Button
+                      variant="outline"
+                      onClick={() => stop.current?.abort()}
+                    >
+                      <Square />
+                      Stop
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleSend}
+                    disabled={
+                      send.isPending ||
+                      !model ||
+                      !virtualKey.trim() ||
+                      !prompt.trim()
+                    }
+                  >
+                    <Send />
+                    {streaming
+                      ? 'Streaming...'
+                      : send.isPending
+                        ? 'Sending...'
+                        : 'Send'}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="flex justify-end">
         <Button variant="outline" asChild>

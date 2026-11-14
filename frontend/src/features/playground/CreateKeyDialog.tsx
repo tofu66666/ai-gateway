@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { KeySnippet } from '@/features/keys/KeySnippet'
+import { OneTimeKeyNotice } from '@/features/keys/OneTimeKeyNotice'
 import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { formatDate } from '@/lib/format'
@@ -123,13 +124,14 @@ export function CreateKeyDialog({
           <DialogTitle>{created ? 'Your new key' : 'Create key'}</DialogTitle>
           <DialogDescription>
             {created
-              ? 'Copy it now: it is shown only once.'
+              ? "Use it with the gateway's OpenAI-compatible API."
               : 'Calls made with the key count against its project.'}
           </DialogDescription>
         </DialogHeader>
 
         {created ? (
           <div className="min-w-0 space-y-4">
+            <OneTimeKeyNotice />
             <div className="space-y-2">
               <div className="flex gap-2">
                 <Input

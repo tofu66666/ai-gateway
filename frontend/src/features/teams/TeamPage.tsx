@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { BudgetBar } from '@/features/overview/BudgetBar'
 import { formatMoney } from '@/lib/format'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { MembersCard } from './MembersCard'
@@ -121,13 +122,32 @@ function ProjectsCard({ teamId }: { teamId: string }) {
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right tabular-nums">
                     {project.budget_per_month === null
                       ? 'No limit'
                       : formatMoney(project.budget_per_month)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right tabular-nums">
                     {formatMoney(project.spend_this_month)}
+                    {typeof project.usage_ratio === 'number' && (
+                      <div className="mt-1 ml-auto flex w-32 items-center gap-2">
+                        <BudgetBar
+                          usage={project.usage_ratio}
+                          threshold={project.warning_threshold ?? 0.8}
+                          state={
+                            project.blocked
+                              ? 'blocked'
+                              : project.warning
+                                ? 'alert'
+                                : 'ok'
+                          }
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {Math.round(project.usage_ratio * 100)}%
+                        </span>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

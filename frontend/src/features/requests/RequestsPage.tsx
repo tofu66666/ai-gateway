@@ -5,7 +5,7 @@ import type { Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { SkeletonLines, SkeletonRows } from '@/components/layout/Placeholders'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/layout/StatusBadge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -27,6 +27,7 @@ import type { BreakdownRow } from '@/features/breakdown/aggregate'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { downloadCsv, toCsv } from '@/lib/csv'
 import { formatDateTime, formatMoney, formatShortDateTime } from '@/lib/format'
+import { httpTone } from '@/lib/status'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { cn } from '@/lib/utils'
 import { type RequestFilter, requestFilters, valueOf } from './filters'
@@ -153,7 +154,6 @@ export function RequestsPage() {
     )
   }
   const detailsOf = (row: BreakdownRow): [string, string][] => [
-    ['Request', row.id],
     ['Time', formatDateTime(row.created_at)],
     ['User', nameOf('user', row.user_id)],
     ['Team', row.team_id ? nameOf('team', row.team_id) : '—'],
@@ -185,9 +185,7 @@ export function RequestsPage() {
     </>
   )
   const statusOf = (row: BreakdownRow) => (
-    <Badge variant={Number(row.status) < 400 ? 'secondary' : 'destructive'}>
-      {row.status}
-    </Badge>
+    <StatusBadge tone={httpTone(row.status)}>{row.status}</StatusBadge>
   )
 
   // Every filtered request, not just this page, in the table's columns;
@@ -293,7 +291,7 @@ export function RequestsPage() {
                       <TableCell>
                         <Clipped
                           text={nameOf('user', row.user_id)}
-                          className="max-w-44"
+                          className="max-w-40"
                         />
                       </TableCell>
                     )}
@@ -306,7 +304,7 @@ export function RequestsPage() {
                     <TableCell className="font-medium">
                       <Clipped
                         text={nameOf('model', row.model_id)}
-                        className="max-w-44"
+                        className="max-w-40"
                       />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -322,8 +320,10 @@ export function RequestsPage() {
                     <TableCell>{statusOf(row)}</TableCell>
                     <TableCell>
                       <RequestDetails
+                        requestId={row.id}
                         time={formatDateTime(row.created_at)}
                         fields={detailsOf(row)}
+                        compact
                       />
                     </TableCell>
                   </TableRow>
@@ -367,6 +367,7 @@ export function RequestsPage() {
                   </span>
                   <span className="ml-auto">
                     <RequestDetails
+                      requestId={row.id}
                       time={formatDateTime(row.created_at)}
                       fields={detailsOf(row)}
                     />

@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router'
 import { cn } from '@/lib/utils'
+import { Logo } from './Logo'
 import { MobileNav } from './MobileNav'
 import { TimeWindowPicker } from './TimeWindowPicker'
 import { UserMenu } from './UserMenu'
@@ -18,11 +19,12 @@ export function TopBar() {
       <MobileNav />
       <span
         className={cn(
-          'truncate font-semibold md:hidden',
+          'flex min-w-0 items-center gap-2 font-semibold md:hidden',
           item?.usesTimeWindow && 'max-sm:hidden',
         )}
       >
-        AI Gateway
+        <Logo className="size-5" />
+        <span className="truncate">AI Gateway</span>
       </span>
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {item?.usesTimeWindow && <TimeWindowPicker />}

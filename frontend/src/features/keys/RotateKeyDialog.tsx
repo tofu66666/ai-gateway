@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format'
+import { OneTimeKeyNotice } from './OneTimeKeyNotice'
 
 export function RotateKeyDialog({ keyId }: { keyId: string }) {
   const [open, setOpen] = useState(false)
@@ -83,13 +84,14 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
           </DialogTitle>
           <DialogDescription>
             {created
-              ? 'Copy it now: it is shown only once. The old key no longer works.'
+              ? 'The old key no longer works.'
               : 'The current key will stop working immediately.'}
           </DialogDescription>
         </DialogHeader>
 
         {created ? (
           <div className="space-y-2">
+            <OneTimeKeyNotice />
             <div className="flex gap-2">
               <Input
                 readOnly

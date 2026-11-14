@@ -1,4 +1,6 @@
+import { toast } from 'sonner'
 import { formatMoney } from '@/lib/format'
+import { AnswerMarkdown } from './AnswerMarkdown'
 import type { Answer, Turn } from './conversations'
 
 export type PendingTurn = {
@@ -33,8 +35,8 @@ export function ChatTranscript({ turns, pending }: ChatTranscriptProps) {
             <p className="text-xs font-medium text-muted-foreground">
               {turn.answer.model}
             </p>
-            <div className="rounded-lg border px-3 py-2 text-sm whitespace-pre-wrap">
-              {turn.content}
+            <div className="rounded-lg border px-3 py-2 text-sm">
+              <AnswerMarkdown text={turn.content} />
             </div>
             <AnswerStats answer={turn.answer} />
           </li>
@@ -44,10 +46,10 @@ export function ChatTranscript({ turns, pending }: ChatTranscriptProps) {
         <>
           <Prompt text={pending.prompt} />
           <li aria-busy="true" className="space-y-1">
-            <div className="rounded-lg border px-3 py-2 text-sm whitespace-pre-wrap">
+            <div className="rounded-lg border px-3 py-2 text-sm">
               {pending.text ? (
                 <>
-                  {pending.text}
+                  <AnswerMarkdown text={pending.text} />
                   {pending.streaming && (
                     <span
                       aria-hidden="true"
@@ -78,27 +80,60 @@ function Prompt({ text }: { text: string }) {
   )
 }
 
+// "640 ms" under a second, "5.3 s" from there.
+function duration(ms: number) {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
+}
+
+function copyId(id: string) {
+  navigator.clipboard
+    .writeText(id)
+    .then(() => toast.success('Request ID copied'))
+    .catch(() => toast.error("Couldn't copy the request ID."))
+}
+
+// What one answer used, in a short muted line: tokens in → out, cost, timing
+// and the request ID, which copies on click.
 function AnswerStats({ answer }: { answer: Answer }) {
-  return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      {answer.stopped && (
-        <span className="font-medium text-foreground">Stopped early</span>
-      )}
-      {answer.inputTokens === null || answer.outputTokens === null ? (
-        <span>Tokens: not reported</span>
-      ) : (
-        <span>
-          Tokens: {answer.inputTokens} in, {answer.outputTokens} out
-        </span>
-      )}
-      {answer.cost !== null && <span>Cost: {formatMoney(answer.cost)}</span>}
-      {answer.firstTokenMs !== null && (
-        <span>First token: {answer.firstTokenMs} ms</span>
-      )}
-      <span>
-        {answer.streamed ? 'Total' : 'Latency'}: {answer.latencyMs} ms
+  const items = [
+    answer.stopped && (
+      <span key="stopped" className="font-medium text-foreground">
+        Stopped early
       </span>
-      {answer.requestId && <span>Request ID: {answer.requestId}</span>}
+    ),
+    <span key="tokens">
+      {answer.inputTokens === null || answer.outputTokens === null
+        ? 'Tokens not reported'
+        : `${answer.inputTokens.toLocaleString('en-US')} → ${answer.outputTokens.toLocaleString('en-US')} tokens`}
+    </span>,
+    answer.cost !== null && <span key="cost">{formatMoney(answer.cost)}</span>,
+    answer.firstTokenMs !== null && (
+      <span key="first">first token {duration(answer.firstTokenMs)}</span>
+    ),
+    <span key="total">
+      {answer.streamed ? 'total' : 'latency'} {duration(answer.latencyMs)}
+    </span>,
+    answer.requestId && (
+      <button
+        key="id"
+        type="button"
+        title={`Copy request ID ${answer.requestId}`}
+        onClick={() => copyId(answer.requestId as string)}
+        className="rounded font-mono hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      >
+        {answer.requestId.slice(0, 8)}…
+      </button>
+    ),
+  ].filter(Boolean)
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground tabular-nums">
+      {items.map((item, index) => (
+        <span key={index} className="flex items-center gap-1.5">
+          {index > 0 && <span aria-hidden>·</span>}
+          {item}
+        </span>
+      ))}
     </div>
   )
 }

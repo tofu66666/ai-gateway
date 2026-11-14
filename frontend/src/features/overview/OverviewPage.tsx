@@ -35,6 +35,7 @@ import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
 import { PlatformOverview } from './PlatformOverview'
 import { StatCard } from './StatCard'
+import { TrendChart } from './TrendChart'
 
 const perDayFormat = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
@@ -314,6 +315,16 @@ export function OverviewPage() {
             />
           </div>
 
+          {(requests.isPending || rows.length > 0) && (
+            <TrendChart
+              description="Your requests in the chosen period, with the filters above."
+              rows={rows}
+              start={sinceDate}
+              end={new Date(statsEnd)}
+              pending={requests.isPending}
+            />
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Spending by model</CardTitle>
@@ -413,6 +424,16 @@ export function OverviewPage() {
               detail={teamShown(`${formatMoney(teamSpending / days)} per day`)}
             />
           </div>
+
+          {(teamUsage.isPending || teamRows.length > 0) && (
+            <TrendChart
+              description="Every request in the teams you lead, with the filters above."
+              rows={teamRows}
+              start={sinceDate}
+              end={new Date(statsEnd)}
+              pending={teamUsage.isPending}
+            />
+          )}
 
           <Card>
             <CardHeader>

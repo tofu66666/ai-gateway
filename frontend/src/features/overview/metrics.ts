@@ -92,3 +92,36 @@ export function teamBudgetRows(teams: TeamBudget[], projects: Project[]) {
         a.name.localeCompare(b.name),
     )
 }
+
+export type DayTotals = {
+  // Midnight at the start of the day, in the viewer's time zone.
+  day: Date
+  spend: number
+  requests: number
+  tokens: number
+}
+
+const dayKey = (date: Date) =>
+  `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+
+// One entry per day from `start` to `end`, quiet days at zero, so a trend
+// shows the days without requests too.
+export function dailyTotals(rows: RequestRow[], start: Date, end: Date) {
+  const days: DayTotals[] = []
+  for (
+    let day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    day <= end;
+    day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+  ) {
+    days.push({ day, spend: 0, requests: 0, tokens: 0 })
+  }
+  const byDay = new Map(days.map((entry) => [dayKey(entry.day), entry]))
+  for (const row of rows) {
+    const entry = byDay.get(dayKey(new Date(row.created_at)))
+    if (!entry) continue
+    entry.spend += Number(row.cost)
+    entry.requests += 1
+    entry.tokens += row.input_tokens + row.output_tokens
+  }
+  return days
+}

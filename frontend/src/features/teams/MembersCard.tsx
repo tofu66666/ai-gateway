@@ -90,7 +90,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
   // The backend says why it refuses, for example when the member does not
   // have the team lead role.
   const lead = useMutation({
-    mutationFn: (member: TeamMember) => changeTeamOwner(teamId, member.user_id),
+    mutationFn: (member: TeamMember) => changeTeamOwner({ team_id: teamId, new_owner_id: member.user_id }),
     onSuccess: (_, member) => {
       toast.success(`${member.email} now leads the team`)
       // Who leads a team also decides the Overview's team usage and budgets.

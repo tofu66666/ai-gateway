@@ -1,3 +1,4 @@
+
 import { apiFetch } from './client'
 
 export type Model = {
@@ -35,6 +36,10 @@ export type CreateProjectRequest = {
   budget_per_month: number | null
 }
 
+export type UpdateProjectBudgetRequest = {
+  budget_per_month: number | null
+}
+
 export type NewModel = {
   alias: string
   provider: string
@@ -62,8 +67,7 @@ export function updateModelPrompt(modelId: string, prompt: string | null) {
   })
 }
 
-// Projects in the caller's teams (all of them for an admin). The endpoint is
-// still to come; the shape follows the API draft.
+// Projects in the caller's teams (all of them for an admin).
 export function getProjects(teamId?: string) {
   const query = teamId ? `?team_id=${encodeURIComponent(teamId)}` : ''
   return apiFetch<Project[]>(`/projects${query}`)
@@ -74,4 +78,19 @@ export function createProject(project: CreateProjectRequest) {
     method: 'POST',
     body: project,
   })
+}
+
+// Update a project's monthly budget.
+// Only users with the required team permissions may update it.
+export function updateProjectBudget(
+  projectId: string,
+  update: UpdateProjectBudgetRequest,
+) {
+  return apiFetch<Project>(
+    `/projects/${encodeURIComponent(projectId)}`,
+    {
+      method: 'PATCH',
+      body: update,
+    },
+  )
 }

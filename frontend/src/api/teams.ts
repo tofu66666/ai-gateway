@@ -1,3 +1,4 @@
+
 import { apiFetch } from './client'
 import type { RequestRow } from './requests'
 
@@ -50,21 +51,34 @@ export type TeamMemberChange = {
   can_create_key: boolean
 }
 
-// The endpoint is still to come (H18IALMOND-51).
 export function getTeamMembers(teamId: string) {
-  return apiFetch<TeamMember[]>(`/team/${encodeURIComponent(teamId)}/users`)
+  return apiFetch<TeamMember[]>(
+    `/team/${encodeURIComponent(teamId)}/users`,
+  )
 }
 
-// Adds the person to the team, or sets their key permission if already in it.
 export function saveTeamMember(change: TeamMemberChange) {
-  return apiFetch<null>('/team/user', { method: 'PUT', body: change })
+  return apiFetch<null>('/team/user', {
+    method: 'PUT',
+    body: change,
+  })
 }
 
 export function removeTeamMember(teamId: string, userId: string) {
   return apiFetch<null>('/team/user', {
     method: 'DELETE',
-    body: { team_id: teamId, user_id: userId },
+    body: {
+      team_id: teamId,
+      user_id: userId,
+    },
   })
+}
+
+// Transfer team ownership.
+// Backend: PUT /team/change_owner
+export type ChangeTeamOwnerRequest = {
+  team_id: string
+  new_owner_id: string
 }
 
 export type OwnerChange = {
@@ -73,35 +87,36 @@ export type OwnerChange = {
   new_owner_id: string
 }
 
-// H18IALMOND-65: hands the team to another person, by its lead or an admin.
-// The backend accepts only someone with the team lead or admin role, and the
-// old lead stays in the team as a member.
-export function changeTeamOwner(teamId: string, newOwnerId: string) {
+// Keep the object argument used by ChangeTeamLeadDialog.
+// The backend validates whether the new owner is eligible.
+export function changeTeamOwner(change: ChangeTeamOwnerRequest) {
   return apiFetch<OwnerChange>('/team/change_owner', {
     method: 'PUT',
-    body: { team_id: teamId, new_owner_id: newOwnerId },
+    body: change,
   })
 }
 
 // Every request in the team's projects, for its lead or an admin.
 export function getTeamRequests(teamId: string) {
-  return apiFetch<RequestRow[]>(`/team/${encodeURIComponent(teamId)}/requests`)
+  return apiFetch<RequestRow[]>(
+    `/team/${encodeURIComponent(teamId)}/requests`,
+  )
 }
 
-// A team with this month's spend and its budget state (H18IALMOND-19).
 export type TeamBudget = Team & {
   owner_id: string
   budget_per_month: number | null
   warning_threshold: number
   spend_this_month: number
-  // Spend over budget; null without a budget, or with a budget of 0.
   usage_ratio: number | null
   warning: boolean
   blocked: boolean
 }
 
 export function getTeamBudget(teamId: string) {
-  return apiFetch<TeamBudget>(`/team/${encodeURIComponent(teamId)}`)
+  return apiFetch<TeamBudget>(
+    `/team/${encodeURIComponent(teamId)}`,
+  )
 }
 
 export type TeamUsage = {
@@ -110,8 +125,6 @@ export type TeamUsage = {
   requests: RequestRow[]
 }
 
-// The teams the user leads (every team for an admin), with their requests and
-// the members who made them.
 export async function getTeamUsage(
   teams: Team[],
   userId: string,
@@ -120,12 +133,23 @@ export async function getTeamUsage(
   const usage = await Promise.all(
     teams.map(async (team): Promise<TeamUsage | null> => {
       const members = await getTeamMembers(team.id)
+
       const leads =
         isAdmin ||
-        members.some((member) => member.is_owner && member.user_id === userId)
+        members.some(
+          (member) =>
+            member.is_owner && member.user_id === userId,
+        )
+
       if (!leads) return null
-      return { team, members, requests: await getTeamRequests(team.id) }
+
+      return {
+        team,
+        members,
+        requests: await getTeamRequests(team.id),
+      }
     }),
   )
+
   return usage.filter((entry) => entry !== null)
 }

@@ -1,9 +1,8 @@
+import { useState } from 'react'
 import type { RequestRow } from '@/api/requests'
 import { ErrorState } from '@/components/layout/ErrorState'
-import { SkeletonLines } from '@/components/layout/Placeholders'
 import { Card, CardContent } from '@/components/ui/card'
 import { costsByBucket } from '@/features/breakdown/aggregate'
-import { SpendChart } from '@/features/breakdown/SpendChart'
 import { useBreakdownData } from '@/features/breakdown/useBreakdownData'
 import { formatMoney } from '@/lib/format'
 import { useTimeWindow, windowStart } from '@/lib/time-window'
@@ -11,6 +10,7 @@ import { requestMetrics } from './metrics'
 import { StatCard } from './StatCard'
 import { TeamBudgets } from './TeamBudgets'
 import { TopConsumers } from './TopConsumers'
+import { TrendChart } from './TrendChart'
 
 const perDay = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
 const percent = new Intl.NumberFormat('en-US', {
@@ -24,8 +24,9 @@ function formatLatency(ms: number) {
 }
 
 // H18IALMOND-26: the admin's view of every team in the chosen window (3.b
-// Storyboard 3, frame 1): spend, traffic, errors and latency, and spend per
-// day. The figures come from the requests, worked out as GET /stats does.
+// Storyboard 3, frame 1): spend, traffic, errors and latency, and the same
+// day-by-day chart as everyone's Overview. The figures come from the
+// requests, worked out as GET /stats does.
 export function PlatformOverview({
   matches,
 }: {
@@ -35,7 +36,10 @@ export function PlatformOverview({
   const { rows, nameOf, isPending, error } = useBreakdownData()
   const shown = rows.filter((row) => matches(row, row.team_id ?? undefined))
   const metrics = requestMetrics(shown)
-  const buckets = costsByBucket(shown, 'team', 'day', windowStart(timeWindow))
+  const start = windowStart(timeWindow)
+  // The chart's last day is fixed for this page load, as on the Overview.
+  const [end] = useState(() => new Date())
+  const buckets = costsByBucket(shown, 'team', 'day', start)
   const days = Math.max(1, buckets.length)
   const empty = metrics.requests === 0
 
@@ -94,24 +98,23 @@ export function PlatformOverview({
         />
       </div>
 
-      <Card>
-        <CardContent>
-          {isPending ? (
-            <SkeletonLines rows={1} className="h-48" />
-          ) : empty ? (
+      {empty && !isPending ? (
+        <Card>
+          <CardContent>
             <p className="flex min-h-24 items-center justify-center text-center text-sm text-muted-foreground">
               No requests in this period, so nothing has been spent.
             </p>
-          ) : (
-            <SpendChart
-              buckets={buckets}
-              series={[]}
-              other={{ key: 'spend', label: 'Spend', color: 'var(--chart-1)' }}
-              granularity="day"
-            />
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <TrendChart
+          description="Every request on the platform, with the filters above."
+          rows={shown}
+          start={start}
+          end={end}
+          pending={isPending}
+        />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
         <TopConsumers rows={shown} nameOf={nameOf} isPending={isPending} />

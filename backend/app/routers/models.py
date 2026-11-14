@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.dependencies import CurrentUser, get_current_user
+from app.gateway_logic_helper import model_kind
 from app.retry_policy import POLICY_COLUMNS, ResiliencePolicy, policy_from_row
 from app.routers.db import get_user_id, get_user_role, supabase
 
@@ -14,7 +15,8 @@ router = APIRouter(tags=["models"])
 security = HTTPBearer()
 
 PUBLIC_MODEL_COLUMNS = (
-    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,prompt"
+    "id,alias,price_per_1m_input,price_per_1m_output,data_processing_country,"
+    "prompt,kind"
 )
 ADMIN_MODEL_COLUMNS = PUBLIC_MODEL_COLUMNS + ",provider,model,data_processing_state"
 UNKNOWN_COUNTRY = "Not specified"
@@ -105,6 +107,9 @@ def serialize_model(model_row: dict, include_provider_details: bool) -> dict:
             model_row.get("data_processing_country")
         ),
         "has_prompt": prompt is not None,
+        # Chat, embedding or completion, so the dashboard offers each model
+        # only where it works. A row without a kind is a chat model.
+        "kind": model_kind(model_row),
     }
 
     if include_provider_details:

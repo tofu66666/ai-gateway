@@ -144,11 +144,9 @@ export function OverviewPage() {
   // plain user's teams card does that for them.
   const showStart =
     user.role === 'team_lead' && !hasResourceFilter && nothingSent
-  // A plain user has no Teams & projects page: their teams card comes first
-  // while they are starting out, and after their usage once they send.
-  const teamsFirst = user.role === 'user' && (userWithoutProject || nothingSent)
-  const teamsLast =
-    user.role === 'user' && !teamsFirst && (stats.data?.count ?? 0) > 0
+  // A plain user has no Teams & projects page, so their teams card opens the
+  // page in every state, above the filters.
+  const showTeams = user.role === 'user'
 
   const personalInput = hasResourceFilter
     ? rows.reduce((sum, row) => sum + row.input_tokens, 0)
@@ -214,7 +212,7 @@ export function OverviewPage() {
         </p>
       </div>
 
-      {teamsFirst && <MyTeams nothingSent={nothingSent} />}
+      {showTeams && <MyTeams nothingSent={nothingSent} />}
 
       {!userWithoutProject && (
         <FilterBar
@@ -498,8 +496,6 @@ export function OverviewPage() {
           </Card>
         </>
       )}
-
-      {teamsLast && <MyTeams nothingSent={false} />}
     </div>
   )
 }

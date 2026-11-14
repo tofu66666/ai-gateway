@@ -122,7 +122,10 @@ export function OverviewPage() {
       ? stats.data.input + stats.data.output
       : undefined
 
-  const personalSpending = hasResourceFilter
+  // GET /stats rounds the cost to four decimals; the request rows hold it in
+  // full, so once they have loaded the figure matches the team section and
+  // the model table.
+  const personalSpending = hasResourceFilter || requests.data
     ? spending
     : stats.data?.total_cost
 

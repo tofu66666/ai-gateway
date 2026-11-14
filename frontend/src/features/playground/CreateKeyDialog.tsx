@@ -36,6 +36,7 @@ import { OneTimeKeyNotice } from '@/features/keys/OneTimeKeyNotice'
 import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { formatDate } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 type CreateKeyDialogProps = {
   onUse?: (key: string) => void
@@ -125,8 +126,13 @@ export function CreateKeyDialog({
       </DialogTrigger>
 
       <DialogContent
-        // Wider while the key is on screen, for the code example.
-        className={created ? 'sm:max-w-xl' : undefined}
+        // Wider while the key is on screen, for the code example. Taller than
+        // a short screen (720p, a phone), it scrolls, as the model dialogs do,
+        // so its title and buttons stay reachable.
+        className={cn(
+          'max-h-[calc(100dvh-2rem)] overflow-y-auto',
+          created && 'sm:max-w-xl',
+        )}
         // While the key is on screen, only the buttons close the dialog.
         onInteractOutside={(event) => {
           if (created) event.preventDefault()

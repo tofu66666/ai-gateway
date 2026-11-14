@@ -71,7 +71,7 @@ export function CreateProjectDialog({ teamId }: { teamId: string }) {
           New project
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>

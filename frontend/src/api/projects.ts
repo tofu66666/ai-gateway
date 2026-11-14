@@ -45,7 +45,8 @@ export type CreateProjectRequest = {
 }
 
 export type UpdateProjectBudgetRequest = {
-  budget_per_month: number | null
+  budget_per_month?: number | null
+  model_ids?: string[]
 }
 
 export type NewModel = {
@@ -88,7 +89,7 @@ export function createProject(project: CreateProjectRequest) {
   })
 }
 
-// Update a project's monthly budget.
+// Update a project's monthly budget and allowed models.
 // Only users with the required team permissions may update it.
 export function updateProjectBudget(
   projectId: string,

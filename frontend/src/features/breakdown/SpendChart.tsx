@@ -63,7 +63,7 @@ type Segment = Series & { cost: number }
 // H18IALMOND-27: spend per day, week or month, stacked by group (3.b
 // Storyboard 3, frame 2). `other` collects the groups without a colour of
 // their own. Each column is a keyboard stop; its tooltip lists every group.
-// With `nameOf`, a column can be picked to list every group of that period
+// With `nameOf`, a column can be picked to chart every group of that period
 // under the chart.
 export function SpendChart({
   buckets,
@@ -260,7 +260,7 @@ export function SpendChart({
 
       {nameOf && !pickedBucket && (
         <p className="text-xs text-muted-foreground">
-          Select a column to list every {groupLabel ?? 'group'} in it.
+          Select a column to chart every {groupLabel ?? 'group'} in it.
         </p>
       )}
       {nameOf && pickedBucket && (
@@ -332,8 +332,9 @@ function Column({
   )
 }
 
-// Every group of one period, largest first, as ranked bars: the bar is the
-// group's share of the period's largest group.
+// Every group of one period as columns, largest first: groups along the
+// x-axis, spend up the y-axis, each named and priced under its column. Many
+// groups scroll sideways inside the frame; the y-axis stays put.
 function PeriodGroups({
   title,
   total,
@@ -345,7 +346,7 @@ function PeriodGroups({
   groups: Segment[]
   onClose: () => void
 }) {
-  const largest = groups[0]?.cost ?? 0
+  const max = axisMax(groups[0]?.cost ?? 0)
   return (
     <section aria-label={title} className="space-y-3 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
@@ -355,39 +356,84 @@ function PeriodGroups({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Close the list"
+          aria-label="Close the chart"
           onClick={onClose}
         >
           <X />
         </Button>
       </div>
-      <ol className="max-h-72 space-y-2 overflow-y-auto pr-1 text-sm">
-        {groups.map((group) => (
-          <li
-            key={group.key}
-            className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)_auto_3rem] items-center gap-3"
-          >
-            <span title={group.label} className="truncate">
-              {group.label}
+
+      <div className="flex gap-2">
+        <div className="relative h-40 w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+          {[0, max / 2, max].map((tick) => (
+            <span
+              key={tick}
+              className="absolute right-0 translate-y-1/2"
+              style={{ bottom: `${(tick / max) * 100}%` }}
+            >
+              {tickMoney.format(tick)}
             </span>
-            <span className="h-2 rounded-full bg-muted">
-              <span
-                className="block h-full rounded-full"
-                style={{
-                  width: `${largest > 0 ? (group.cost / largest) * 100 : 0}%`,
-                  background: group.color,
-                }}
-              />
-            </span>
-            <span className="text-right tabular-nums">
-              {formatMoney(group.cost)}
-            </span>
-            <span className="text-right text-muted-foreground tabular-nums">
-              {formatShare(group.cost / total)}
-            </span>
-          </li>
-        ))}
-      </ol>
+          ))}
+        </div>
+
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <div style={{ minWidth: `${groups.length * 4.5}rem` }}>
+            <div className="relative flex h-40 items-end border-b border-muted-foreground/40">
+              {[0.5, 1].map((at) => (
+                <div
+                  key={at}
+                  aria-hidden
+                  className="absolute inset-x-0 border-t border-border"
+                  style={{ bottom: `${at * 100}%` }}
+                />
+              ))}
+              {groups.map((group) => (
+                <Tooltip key={group.key}>
+                  <TooltipTrigger asChild>
+                    <div
+                      role="img"
+                      tabIndex={0}
+                      aria-label={`${group.label}: ${formatMoney(group.cost)}, ${formatShare(group.cost / total)}`}
+                      className="group relative flex h-full flex-1 items-end justify-center rounded-sm outline-none focus-visible:bg-muted"
+                    >
+                      <div
+                        className="min-h-px w-3/5 max-w-10 rounded-t-[4px] group-hover:opacity-80"
+                        style={{
+                          height: `${(group.cost / max) * 100}%`,
+                          background: group.color,
+                        }}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="block space-y-1">
+                    <p className="font-medium tabular-nums">
+                      {formatMoney(group.cost)} ·{' '}
+                      {formatShare(group.cost / total)}
+                    </p>
+                    <p className="opacity-70">{group.label}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+
+            <div className="flex pt-1 text-xs">
+              {groups.map((group) => (
+                <div
+                  key={group.key}
+                  className="min-w-0 flex-1 px-1 text-center"
+                >
+                  <p title={group.label} className="truncate">
+                    {group.label}
+                  </p>
+                  <p className="truncate text-muted-foreground tabular-nums">
+                    {formatMoney(group.cost)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   )
 }

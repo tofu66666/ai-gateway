@@ -67,7 +67,7 @@ export const navItems: NavItem[] = [
   },
   {
     path: '/audit-logs',
-    label: 'Audit Logs',
+    label: 'Audit log',
     icon: ScrollText,
     roles: admins,
   },

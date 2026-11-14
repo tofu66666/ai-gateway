@@ -15,6 +15,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format'
 
 export function RotateKeyDialog({ keyId }: { keyId: string }) {
@@ -48,12 +53,21 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          <RotateCw />
-          Rotate
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Rotate key"
+            >
+              <RotateCw />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Rotate</TooltipContent>
+      </Tooltip>
 
       <DialogContent
         onInteractOutside={(event) => {

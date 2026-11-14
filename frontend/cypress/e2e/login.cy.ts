@@ -66,7 +66,7 @@ describe('Authentication flow', () => {
 
     cy.get('input#email').should('exist').type('admin@example.com')
     cy.get('input#password').should('exist').type('password123')
-    cy.contains('button', 'Sign In').click()
+    cy.contains('button', 'Sign in').click()
 
     cy.wait('@loginRequest')
     cy.location('pathname').should('eq', '/overview')

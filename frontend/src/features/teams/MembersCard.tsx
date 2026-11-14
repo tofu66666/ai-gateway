@@ -9,6 +9,7 @@ import {
   type TeamMember,
 } from '@/api/teams'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -122,9 +123,7 @@ export function MembersCard({ teamId }: { teamId: string }) {
         )}
       </CardHeader>
       <CardContent>
-        {members.isPending && (
-          <p className="text-sm text-muted-foreground">Loading members...</p>
-        )}
+        {members.isPending && <SkeletonLines rows={3} />}
         {members.isError && (
           <ErrorState title="Couldn't load the members" error={members.error} />
         )}

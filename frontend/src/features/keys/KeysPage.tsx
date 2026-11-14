@@ -1,14 +1,28 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { queryKeys, useKeys } from '@/api/hooks'
+import { queryKeys, useKeys, useModels } from '@/api/hooks'
 import { revokeKey } from '@/api/keys'
+import { isChatModel } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonRows } from '@/components/layout/Placeholders'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -22,9 +36,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { KeySnippet } from '@/features/keys/KeySnippet'
 import { RotateKeyDialog } from '@/features/keys/RotateKeyDialog'
 import { CreateKeyDialog } from '@/features/playground/CreateKeyDialog'
 import { formatDate } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 function statusVariant(status: string) {
   return status === 'active'
@@ -37,8 +58,11 @@ function statusVariant(status: string) {
 export function KeysPage() {
   const user = useCurrentUser()
   const keys = useKeys()
+  const models = useModels()
   const queryClient = useQueryClient()
   const rows = keys.data ?? []
+  // A user lists only their own keys, so the column would repeat them.
+  const showUser = user.role !== 'user'
 
   const revoke = useMutation({
     mutationFn: revokeKey,
@@ -51,37 +75,28 @@ export function KeysPage() {
     },
   })
 
-  function handleRevoke(keyId: string) {
-    if (!window.confirm('Revoke this key? It will stop working immediately.')) {
-      return
-    }
-
-    revoke.mutate(keyId)
-  }
-
   function refreshKeys() {
     queryClient.invalidateQueries({ queryKey: queryKeys.keys })
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Key Management</h1>
-          <p className="text-muted-foreground">
-            View and manage virtual API keys for your projects.
-          </p>
-        </div>
-
-        <CreateKeyDialog onCreated={refreshKeys} />
+      <div>
+        <h1 className="text-2xl font-semibold">Keys</h1>
+        <p className="text-muted-foreground">
+          View and manage virtual API keys for your projects.
+        </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Virtual API Keys</CardTitle>
+          <CardTitle>Virtual API keys</CardTitle>
           <CardDescription>
             Keys provide access to AI models through the gateway.
           </CardDescription>
+          <CardAction>
+            <CreateKeyDialog onCreated={refreshKeys} />
+          </CardAction>
         </CardHeader>
 
         <CardContent>
@@ -96,12 +111,11 @@ export function KeysPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Key</TableHead>
-                <TableHead>Name</TableHead>
                 <TableHead>Project</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Allowed Models</TableHead>
+                {showUser && <TableHead>User</TableHead>}
+                <TableHead>Allowed models</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead>Expiry</TableHead>
+                <TableHead>Expires</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -110,24 +124,42 @@ export function KeysPage() {
             <TableBody>
               {rows.map((key) => (
                 <TableRow key={key.id}>
-                  <TableCell className="font-mono text-xs">
-                    {key.prefix}...
+                  {/* The name, when it has one, over the prefix. */}
+                  <TableCell>
+                    {key.name && (
+                      <div
+                        title={key.name}
+                        className="max-w-48 truncate font-medium"
+                      >
+                        {key.name}
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        'font-mono text-xs',
+                        key.name && 'text-muted-foreground',
+                      )}
+                    >
+                      {key.prefix}...
+                    </div>
                   </TableCell>
-
-                  <TableCell>{key.name ?? '—'}</TableCell>
 
                   <TableCell>
                     {key.project_name ?? key.project_id.slice(0, 8)}
                   </TableCell>
 
-                  <TableCell>
-                    {key.user_email ?? key.user_id.slice(0, 8)}
-                  </TableCell>
+                  {showUser && (
+                    <TableCell>
+                      {key.user_email ?? key.user_id.slice(0, 8)}
+                    </TableCell>
+                  )}
 
                   <TableCell>
-                    {key.allowed_models.length > 0
-                      ? key.allowed_models.join(', ')
-                      : 'All project models'}
+                    <div className="max-w-48 whitespace-normal">
+                      {key.allowed_models.length > 0
+                        ? key.allowed_models.join(', ')
+                        : 'All project models'}
+                    </div>
                   </TableCell>
 
                   <TableCell>{formatDate(key.created_at)}</TableCell>
@@ -142,27 +174,18 @@ export function KeysPage() {
 
                   <TableCell>
                     {key.status === 'active' ? (
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
                         {key.user_id === user.id && (
                           <RotateKeyDialog keyId={key.id} />
                         )}
 
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
+                        <RevokeButton
+                          prefix={key.prefix}
                           disabled={
-                            revoke.isPending &&
-                            revoke.variables === key.id
+                            revoke.isPending && revoke.variables === key.id
                           }
-                          onClick={() => handleRevoke(key.id)}
-                        >
-                          <Trash2 />
-                          {revoke.isPending &&
-                          revoke.variables === key.id
-                            ? 'Revoking...'
-                            : 'Revoke'}
-                        </Button>
+                          onConfirm={() => revoke.mutate(key.id)}
+                        />
                       </div>
                     ) : (
                       <div className="text-right text-muted-foreground">—</div>
@@ -171,15 +194,15 @@ export function KeysPage() {
                 </TableRow>
               ))}
 
-              {rows.length === 0 && !keys.isError && (
+              {keys.isPending && <SkeletonRows columns={showUser ? 8 : 7} />}
+
+              {!keys.isPending && rows.length === 0 && !keys.isError && (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={showUser ? 8 : 7}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    {keys.isPending
-                      ? 'Loading API keys...'
-                      : 'No API keys found.'}
+                    No API keys yet. Create one with Create key.
                   </TableCell>
                 </TableRow>
               )}
@@ -187,6 +210,67 @@ export function KeysPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Use a key in your code</CardTitle>
+          <CardDescription>
+            Put one of your keys in place of YOUR_KEY.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <KeySnippet
+            apiKey="YOUR_KEY"
+            model={models.data?.find(isChatModel)?.alias ?? 'MODEL_NAME'}
+          />
+        </CardContent>
+      </Card>
     </div>
+  )
+}
+
+function RevokeButton({
+  prefix,
+  disabled,
+  onConfirm,
+}: {
+  prefix: string
+  disabled: boolean
+  onConfirm: () => void
+}) {
+  return (
+    <AlertDialog>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label={`Revoke ${prefix}...`}
+              disabled={disabled}
+            >
+              <Trash2 />
+            </Button>
+          </AlertDialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Revoke</TooltipContent>
+      </Tooltip>
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Revoke {prefix}...?</AlertDialogTitle>
+          <AlertDialogDescription>
+            It will stop working immediately. This can't be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onConfirm}>
+            Revoke
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

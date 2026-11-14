@@ -12,6 +12,14 @@ export type Model = {
   // (H18IALMOND-56). Only admins also get the prompt itself.
   has_prompt?: boolean
   prompt?: string | null
+  // What the model answers: chat, embedding or completion requests. Missing
+  // from older backends, which only had chat models.
+  kind?: 'chat' | 'embedding' | 'completion'
+}
+
+// Chat is what the Playground and the code examples send.
+export function isChatModel(model: Model) {
+  return (model.kind ?? 'chat') === 'chat'
 }
 
 export type Project = {

@@ -52,6 +52,8 @@ export type TeamBudgetRow = {
   state: BudgetState
   // This month's spend over the budget; null without a budget.
   usage: number | null
+  // The share of the budget that raises the alert, such as 0.8.
+  threshold: number
   // Projects whose requests are refused: all of a blocked team's, otherwise
   // the ones past their own budget.
   cutOff: number
@@ -77,6 +79,7 @@ export function teamBudgetRows(teams: TeamBudget[], projects: Project[]) {
               ? 'none'
               : 'ok',
         usage,
+        threshold: Number(team.warning_threshold),
         cutOff: team.blocked
           ? own.length
           : own.filter((project) => project.blocked).length,

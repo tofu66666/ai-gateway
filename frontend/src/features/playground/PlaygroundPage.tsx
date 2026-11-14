@@ -16,7 +16,7 @@ import {
   type ChatMessage,
 } from '@/api/gateway'
 import { queryKeys, useKeys, useModels, useProjects } from '@/api/hooks'
-import type { Model } from '@/api/projects'
+import { isChatModel, type Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -107,11 +107,13 @@ export function PlaygroundPage() {
   const [stored, setStored] = useState(true)
   const transcript = useRef<HTMLDivElement>(null)
   // null until the keys, projects and models have loaded.
+  // Only chat models can answer here; embedding models stay out of the list.
+  const chatModels = models.data?.filter(isChatModel)
   const check =
-    keys.data && projects.data && models.data
-      ? checkKey(virtualKey, keys.data, projects.data, models.data)
+    keys.data && projects.data && chatModels
+      ? checkKey(virtualKey, keys.data, projects.data, chatModels)
       : null
-  const choices = check?.found === 'mine' ? check.models : (models.data ?? [])
+  const choices = check?.found === 'mine' ? check.models : (chatModels ?? [])
   // A model the key may not use drops out instead of being sent and refused.
   const model = choices.find((candidate) => candidate.id === modelId)
   const chat = chats.find((candidate) => candidate.id === chatId) ?? null
@@ -519,7 +521,7 @@ export function PlaygroundPage() {
 
       <div className="flex justify-end">
         <Button variant="outline" asChild>
-          <Link to="/requests">Request History</Link>
+          <Link to="/requests">View requests</Link>
         </Button>
       </div>
     </div>

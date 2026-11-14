@@ -3,6 +3,8 @@ import { Boxes } from 'lucide-react'
 import { useModels } from '@/api/hooks'
 import type { Model } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
+import { SkeletonLines } from '@/components/layout/Placeholders'
+import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardAction,
@@ -13,7 +15,7 @@ import {
 } from '@/components/ui/card'
 import { AddModelDialog } from './AddModelDialog'
 import { hasMasterPrompt } from './masterPrompt'
-import { MasterPromptDialog } from './MasterPromptDialog'
+import { MasterPromptEditor } from './MasterPromptEditor'
 
 // Admins also get the provider and the provider's model name.
 type PricedModel = Model & {
@@ -55,7 +57,7 @@ export function ModelsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Available Models</CardTitle>
+          <CardTitle>Available models</CardTitle>
           <CardDescription>
             Models available for your account.
           </CardDescription>
@@ -67,9 +69,7 @@ export function ModelsPage() {
         </CardHeader>
 
         <CardContent>
-          {loading && (
-            <p className="text-muted-foreground">Loading models...</p>
-          )}
+          {loading && <SkeletonLines rows={3} className="h-24" />}
 
           {!loading && error && (
             <p className="text-sm text-destructive">{error}</p>
@@ -90,19 +90,20 @@ export function ModelsPage() {
               {models.map((model) => (
                 <Card key={model.id} size="sm">
                   <CardHeader>
-                    <CardTitle>{model.alias}</CardTitle>
-                    {user.role === 'admin' && (
-                      <CardAction>
-                        <MasterPromptDialog model={model} />
-                      </CardAction>
-                    )}
+                    <CardTitle className="flex flex-wrap items-center gap-2">
+                      {model.alias}
+                      {/* Embedding and completion models don't chat. */}
+                      {model.kind && model.kind !== 'chat' && (
+                        <Badge variant="outline">{model.kind}</Badge>
+                      )}
+                    </CardTitle>
                   </CardHeader>
 
                   <CardContent>
                     <div className="grid gap-4 md:grid-cols-4">
                       <div>
                         <p className="text-sm text-muted-foreground">
-                          Input Price
+                          Input price
                         </p>
                         <p className="font-medium">
                           {formatPrice(model.price_per_1m_input)}
@@ -111,7 +112,7 @@ export function ModelsPage() {
 
                       <div>
                         <p className="text-sm text-muted-foreground">
-                          Output Price
+                          Output price
                         </p>
                         <p className="font-medium">
                           {formatPrice(model.price_per_1m_output)}
@@ -120,7 +121,7 @@ export function ModelsPage() {
 
                       <div>
                         <p className="text-sm text-muted-foreground">
-                          Data Processing
+                          Data processing
                         </p>
                         <p className="font-medium">
                           {model.data_processing_country ?? 'Not specified'}
@@ -139,8 +140,15 @@ export function ModelsPage() {
                       )}
                     </div>
 
-                    {/* H18IALMOND-56: only admins get the text itself. */}
-                    {hasMasterPrompt(model) && (
+                    {/* H18IALMOND-56: only admins get the text itself, and
+                        edit it in place. */}
+                    {user.role === 'admin' && (
+                      <div className="mt-4">
+                        <MasterPromptEditor model={model} />
+                      </div>
+                    )}
+
+                    {user.role !== 'admin' && hasMasterPrompt(model) && (
                       <div className="mt-4">
                         <p className="text-sm text-muted-foreground">
                           Master prompt

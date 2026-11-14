@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { useModels, useProjects, useTeams } from '@/api/hooks'
 import { createKey } from '@/api/keys'
+import { isChatModel } from '@/api/projects'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { KeySnippet } from '@/features/keys/KeySnippet'
 import { MasterPromptMark } from '@/features/models/MasterPromptMark'
 import { ProcessedIn } from '@/features/models/ProcessedIn'
 import { formatDate } from '@/lib/format'
@@ -59,6 +61,13 @@ export function CreateKeyDialog({
     onSuccess: () => onCreated?.(),
   })
   const created = create.data
+  // The code example chats with the first chat model the key allows.
+  const exampleModel =
+    projectModels?.find(
+      (model) =>
+        isChatModel(model) &&
+        (modelIds.length === 0 || modelIds.includes(model.id)),
+    )?.alias ?? 'MODEL_NAME'
 
   function changeOpen(next: boolean) {
     setOpen(next)
@@ -100,6 +109,8 @@ export function CreateKeyDialog({
       </DialogTrigger>
 
       <DialogContent
+        // Wider while the key is on screen, for the code example.
+        className={created ? 'sm:max-w-xl' : undefined}
         // While the key is on screen, only the buttons close the dialog.
         onInteractOutside={(event) => {
           if (created) event.preventDefault()
@@ -118,29 +129,36 @@ export function CreateKeyDialog({
         </DialogHeader>
 
         {created ? (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Input
-                readOnly
-                aria-label="New key"
-                value={created.key}
-                className="font-mono text-xs"
-                onFocus={(event) => event.target.select()}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Copy key"
-                onClick={() => copy(created.key)}
-              >
-                <Copy />
-              </Button>
+          <div className="min-w-0 space-y-4">
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  aria-label="New key"
+                  value={created.key}
+                  className="font-mono text-xs"
+                  onFocus={(event) => event.target.select()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Copy key"
+                  onClick={() => copy(created.key)}
+                >
+                  <Copy />
+                </Button>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Expires {formatDate(created.expires_at)}.
+              </p>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              Expires {formatDate(created.expires_at)}.
-            </p>
+            <section className="space-y-2 border-t pt-4">
+              <h3 className="text-sm font-medium">Use this key in your code</h3>
+              <KeySnippet apiKey={created.key} model={exampleModel} />
+            </section>
           </div>
         ) : (
           <div className="space-y-2">

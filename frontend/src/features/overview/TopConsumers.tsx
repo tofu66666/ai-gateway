@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import {
   Card,
   CardAction,
@@ -52,9 +53,11 @@ export function TopConsumers({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {isPending || top.length === 0 ? (
+        {isPending ? (
+          <SkeletonLines rows={2} />
+        ) : top.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            {isPending ? 'Loading...' : 'Nothing was spent in this period.'}
+            Nothing was spent in this period.
           </p>
         ) : (
           <ol className="space-y-3 text-sm">

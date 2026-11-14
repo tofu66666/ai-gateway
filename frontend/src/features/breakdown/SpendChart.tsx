@@ -37,11 +37,17 @@ function rangeLabel(bucket: Bucket, granularity: Granularity) {
   return dayMonth.formatRange(bucket.start, new Date(bucket.end.getTime() - 1))
 }
 
-// The axis top: 1, 2, 2.5 or 5 times a power of ten, at or above the value.
+// The axis top: 1, 2, 4, 6 or 8 times a power of ten, at or above the value,
+// so the middle tick is round too ($0.02, not $0.0125).
 function axisMax(value: number) {
   if (value <= 0) return 1
   const step = 10 ** Math.floor(Math.log10(value))
-  return ([1, 2, 2.5, 5, 10].find((f) => f * step >= value) ?? 10) * step
+  return ([1, 2, 4, 6, 8, 10].find((f) => f * step >= value) ?? 10) * step
+}
+
+// Few columns get wider bars, so they don't look thin and far apart.
+function barWidth(columns: number) {
+  return columns <= 4 ? 'max-w-14' : columns <= 10 ? 'max-w-9' : 'max-w-6'
 }
 
 // H18IALMOND-27: spend per day, week or month, stacked by group (3.b
@@ -131,7 +137,10 @@ export function SpendChart({
                     className="group relative flex h-full flex-1 items-end justify-center rounded-sm outline-none focus-visible:bg-muted"
                   >
                     <div
-                      className="flex w-3/5 max-w-6 flex-col-reverse gap-[2px] group-hover:opacity-80"
+                      className={cn(
+                        'flex w-3/5 flex-col-reverse gap-[2px] group-hover:opacity-80',
+                        barWidth(buckets.length),
+                      )}
                       style={{ height: `${(bucket.total / max) * 100}%` }}
                     >
                       {segmentsOf(bucket).map((segment, index, all) => (

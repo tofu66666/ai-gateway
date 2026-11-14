@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { useModels, useProjects, useTeams } from '@/api/hooks'
 import { EmptyState } from '@/components/layout/EmptyState'
 import { ErrorState } from '@/components/layout/ErrorState'
+import { SkeletonLines } from '@/components/layout/Placeholders'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -85,9 +86,7 @@ function ProjectsCard({ teamId }: { teamId: string }) {
         )}
       </CardHeader>
       <CardContent>
-        {projects.isPending && (
-          <p className="text-sm text-muted-foreground">Loading projects...</p>
-        )}
+        {projects.isPending && <SkeletonLines rows={2} />}
         {projects.isError && (
           <ErrorState
             title="Couldn't load the projects"

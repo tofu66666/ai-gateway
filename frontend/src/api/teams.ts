@@ -67,6 +67,22 @@ export function removeTeamMember(teamId: string, userId: string) {
   })
 }
 
+export type OwnerChange = {
+  status: string
+  team_id: string
+  new_owner_id: string
+}
+
+// H18IALMOND-65: hands the team to another person, by its lead or an admin.
+// The backend accepts only someone with the team lead or admin role, and the
+// old lead stays in the team as a member.
+export function changeTeamOwner(teamId: string, newOwnerId: string) {
+  return apiFetch<OwnerChange>('/team/change_owner', {
+    method: 'PUT',
+    body: { team_id: teamId, new_owner_id: newOwnerId },
+  })
+}
+
 // Every request in the team's projects, for its lead or an admin.
 export function getTeamRequests(teamId: string) {
   return apiFetch<RequestRow[]>(`/team/${encodeURIComponent(teamId)}/requests`)

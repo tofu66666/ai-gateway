@@ -366,6 +366,8 @@ export function BreakdownPage() {
               series={series}
               other={other}
               granularity={granularity}
+              nameOf={(key) => nameOf(groupBy, key)}
+              groupLabel={groupLabels[groupBy].toLowerCase()}
             />
           )}
 

@@ -1,9 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { queryKeys, useKeys, useModels } from '@/api/hooks'
+import { queryKeys, useKeys } from '@/api/hooks'
 import { revokeKey } from '@/api/keys'
-import { isChatModel } from '@/api/projects'
 import { useCurrentUser } from '@/auth/useAuth'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { SkeletonRows } from '@/components/layout/Placeholders'
@@ -57,7 +56,6 @@ const statusTones: Record<string, Tone> = {
 export function KeysPage() {
   const user = useCurrentUser()
   const keys = useKeys()
-  const models = useModels()
   const queryClient = useQueryClient()
   const rows = keys.data ?? []
   // A user lists only their own keys, so the column would repeat them.
@@ -144,12 +142,22 @@ export function KeysPage() {
                   </TableCell>
 
                   <TableCell>
-                    {key.project_name ?? key.project_id.slice(0, 8)}
+                    <div
+                      title={key.project_name ?? undefined}
+                      className="max-w-36 truncate"
+                    >
+                      {key.project_name ?? key.project_id.slice(0, 8)}
+                    </div>
                   </TableCell>
 
                   {showUser && (
                     <TableCell>
-                      {key.user_email ?? key.user_id.slice(0, 8)}
+                      <div
+                        title={key.user_email ?? undefined}
+                        className="max-w-44 truncate"
+                      >
+                        {key.user_email ?? key.user_id.slice(0, 8)}
+                      </div>
                     </TableCell>
                   )}
 
@@ -214,13 +222,15 @@ export function KeysPage() {
         <CardHeader>
           <CardTitle>Use a key in your code</CardTitle>
           <CardDescription>
-            Put one of your keys in place of YOUR_KEY.
+            Put one of your keys in place of YOUR_KEY, and the name of a chat
+            model it may use, as the Models page shows it, in place of
+            MODEL_NAME.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <KeySnippet
             apiKey="YOUR_KEY"
-            model={models.data?.find(isChatModel)?.alias ?? 'MODEL_NAME'}
+            model="MODEL_NAME"
           />
         </CardContent>
       </Card>

@@ -27,12 +27,10 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
 
-  const rotate = useMutation({
-    mutationFn: rotateKey,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.keys })
-    },
-  })
+  // The key list refreshes only once this dialog closes: the old key is then
+  // revoked, and its row, which holds this dialog, stops offering Rotate.
+  // Refreshing at once closed the dialog before the new key could be copied.
+  const rotate = useMutation({ mutationFn: rotateKey })
 
   const created = rotate.data
 
@@ -40,6 +38,9 @@ export function RotateKeyDialog({ keyId }: { keyId: string }) {
     setOpen(next)
 
     if (!next) {
+      if (created) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.keys })
+      }
       // Closing forgets the new raw key, so it is shown only once.
       rotate.reset()
     }

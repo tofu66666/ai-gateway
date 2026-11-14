@@ -57,11 +57,16 @@ export function KeySnippet({
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
-        Any OpenAI-compatible library works with this base URL:
+        Point any OpenAI-compatible library at this base URL. It is an address
+        for code, not a page to open in the browser:
       </p>
       <code className="block font-mono text-xs break-all">
         {gatewayBaseUrl()}
       </code>
+      <p className="text-sm text-muted-foreground">
+        The OpenAI library is only the client: the gateway sends each request to
+        the provider of the model you name, Gemini included.
+      </p>
       <Tabs defaultValue="python">
         <TabsList>
           {languages.map(([value, label]) => (

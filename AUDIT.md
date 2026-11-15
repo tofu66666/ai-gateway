@@ -55,7 +55,20 @@ endpoints:
 
 GET /audit_actions
 GET /audit_logs?action=x&user_email=x&start=x&end=x
+GET /audit_logs?team_id=<uuid>
+GET /audit_logs?model_id=<uuid>
 
 Notes:
 - `start` and `end` are Unix epoch timestamps in seconds.
 - Example: `start=1725000000&end=1728000000`
+- Audit endpoints require an admin account.
+- `team_id` and `model_id` are optional UUID query parameters; invalid UUIDs return 422.
+- `team_id` matches `target_id` only for `team_create`, `team_modify`,
+  `team_modify_owner`, `team_add_user`, and `team_remove_user` actions.
+- `model_id` is the platform model UUID (not its name) and matches `target_id`
+  only for `model_create` and `model_modify` actions.
+- Resource filters do not include related project or API key actions.
+- All filters combine with AND. Providing both resource filters returns `200 []`
+  because team actions and model actions have no overlap, even if the UUIDs match.
+- Valid UUIDs with no matching entries return `200 []`.
+- Omitting both resource filters preserves the existing filtering and response format.

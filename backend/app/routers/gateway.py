@@ -363,17 +363,18 @@ def enforce_guardrails(body:dict, row:dict, key:dict, endpoint:str="chat")->dict
         headers={"X-Request-ID": str(logged_id)} if logged_id else None
         raise HTTPException(400, str(exc), headers=headers) from exc
 
-def pick_deployment(row:dict, key:dict)->dict:
-    # H18IALMOND-37: share the alias across its deployments, skipping any in cooldown
+
+def load_deployments(row:dict)->list[dict]:
+    # H18IALMOND-37: The alias's deployments, in the order the admin listed them
     try:
-        deployments=get_deployments(row["id"])
+        return get_deployments(row["id"])
     except Exception as exc:
         raise HTTPException(503, "Could not look up model deployments") from exc
-    balancer=load_balancer.balancer
-    deployment=balancer.acquire(row["id"], deployments, row.get("routing_strategy"))
-    if deployment is not None:
-        return deployment
+
+
+def refuse_unavailable(row:dict, key:dict, deployments:list[dict]):
     # Log the refusal; status >= 400 records 0 tokens and 0 cost
+    balancer=load_balancer.balancer
     logged_id=request_log.log_request(
         key=key, model=row, payload={}, status_code=503, latency_ms=0, attempt_count=0
     )
@@ -382,6 +383,16 @@ def pick_deployment(row:dict, key:dict)->dict:
     if waits:
         headers["Retry-After"]=str(math.ceil(min(waits)))
     raise HTTPException(503, f"No deployment is available for model '{row['alias']}'", headers=headers)
+
+
+def pick_deployment(row:dict, key:dict)->dict:
+    # H18IALMOND-37: share the alias across its deployments, skipping any in cooldown
+    deployments=load_deployments(row)
+    deployment=load_balancer.balancer.acquire(row["id"], deployments, row.get("routing_strategy"))
+    if deployment is not None:
+        return deployment
+    refuse_unavailable(row, key, deployments)
+
 
 def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here

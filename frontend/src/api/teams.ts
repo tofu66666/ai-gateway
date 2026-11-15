@@ -87,7 +87,6 @@ export type OwnerChange = {
   new_owner_id: string
 }
 
-// Keep the object argument used by ChangeTeamLeadDialog.
 // The backend validates whether the new owner is eligible.
 export function changeTeamOwner(change: ChangeTeamOwnerRequest) {
   return apiFetch<OwnerChange>('/team/change_owner', {

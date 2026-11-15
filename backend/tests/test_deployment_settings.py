@@ -302,3 +302,11 @@ def test_put_audit_failure_keeps_the_saved_settings(role, db):
 
     assert r.status_code == 200
     assert r.json() == EXPECTED
+
+def test_put_accepts_the_ordered_strategy(role, db):
+    r = put({**BODY, "routing_strategy": "ordered"})
+
+    assert r.status_code == 200
+    assert r.json()["routing_strategy"]=="ordered"
+    db.models.update.assert_called_once_with({"routing_strategy": "ordered"})
+    

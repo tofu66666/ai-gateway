@@ -36,12 +36,17 @@ class LoadBalancer:
             if not available:
                 return None
             start = self._turns[alias_id] % len(available)
-            self._turns[alias_id] += 1
+            if strategy != "ordered":
+                self._turns[alias_id] += 1
             # Starting from the next turn makes least_busy share out ties evenly
             rotated = available[start:] + available[:start]
             choice = rotated[0]
             if strategy == "least_busy":
                 choice = min(rotated, key=lambda d: self._in_flight[d["id"]])
+            elif strategy == "ordered":
+                # H18IALMOND-18: Always take the first deployment that is not in cooldown 
+                # (list is in admin order)
+                choice=available[0]
             self._in_flight[choice["id"]] += 1
             return choice
 

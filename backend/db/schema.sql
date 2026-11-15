@@ -20,7 +20,7 @@ create table if not exists models (
                             check (kind in ('chat', 'embedding', 'completion')),
   -- How traffic for this alias is shared across its deployments (H18IALMOND-37).
   routing_strategy        text not null default 'round_robin'
-                            check (routing_strategy in ('round_robin', 'least_busy')),
+                            check (routing_strategy in ('round_robin', 'least_busy', 'ordered')),
   retry_count             integer not null default 3 check (retry_count >= 0),
   retry_backoff_seconds   double precision[] not null default '{1,2,4}',
   timeout_seconds         double precision not null default 30 check (timeout_seconds > 0)

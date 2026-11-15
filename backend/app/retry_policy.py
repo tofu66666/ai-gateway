@@ -33,6 +33,14 @@ def policy_from_row(row: dict) -> dict:
     return {name: row.get(name, default) for name, default in DEFAULT_POLICY.items()}
 
 
+def without_retries(row: dict) -> dict:
+    """Return a copy of the alias row that never retries the same deployment.
+
+    Used when another deployment is waiting as a fallback
+    If this call fails, we go straight to the next deployment instead of retrying this one.
+    """
+    return {**row, "retry_count":0, "retry_backoff_seconds": []}
+
 def call_with_retries(send, policy: dict):
     """Return the final response, HTTP error and number of upstream attempts."""
     for index in range(policy["retry_count"] + 1):

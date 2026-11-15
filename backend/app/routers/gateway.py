@@ -14,7 +14,7 @@ from app import budget, config, guardrails, load_balancer, request_log
 import json 
 from app import gateway_logic_helper as logic
 from app.providers import call_prov, open_stream, supp_stream_usage
-from app.retry_policy import call_with_retries, policy_from_row
+from app.retry_policy import call_with_retries, policy_from_row, without_retries
 from app.routers.db import supabase
 from app.routers.virtual_key import validate_virtual_key, hash_key
 
@@ -203,7 +203,9 @@ def log_and_respond(status_code, payload, row, deployment, key, started, request
         headers={"X-Request-ID": str(logged_id)}
     else:
         headers={}
-    return JSONResponse(payload, status_code=status_code, headers=headers)
+    response=JSONResponse(payload, status_code=status_code, headers=headers)
+    response.attempts=attempt_count
+    return response
 
 # First part of chat_completions
 def send_to_prov_json(call_endpoint, provider_body, row, deployment, key, request_text=None, usage_estimate=None):
@@ -363,17 +365,18 @@ def enforce_guardrails(body:dict, row:dict, key:dict, endpoint:str="chat")->dict
         headers={"X-Request-ID": str(logged_id)} if logged_id else None
         raise HTTPException(400, str(exc), headers=headers) from exc
 
-def pick_deployment(row:dict, key:dict)->dict:
-    # H18IALMOND-37: share the alias across its deployments, skipping any in cooldown
+
+def load_deployments(row:dict)->list[dict]:
+    # H18IALMOND-37: The alias's deployments, in the order the admin listed them
     try:
-        deployments=get_deployments(row["id"])
+        return get_deployments(row["id"])
     except Exception as exc:
         raise HTTPException(503, "Could not look up model deployments") from exc
-    balancer=load_balancer.balancer
-    deployment=balancer.acquire(row["id"], deployments, row.get("routing_strategy"))
-    if deployment is not None:
-        return deployment
+
+
+def refuse_unavailable(row:dict, key:dict, deployments:list[dict]):
     # Log the refusal; status >= 400 records 0 tokens and 0 cost
+    balancer=load_balancer.balancer
     logged_id=request_log.log_request(
         key=key, model=row, payload={}, status_code=503, latency_ms=0, attempt_count=0
     )
@@ -382,6 +385,19 @@ def pick_deployment(row:dict, key:dict)->dict:
     if waits:
         headers["Retry-After"]=str(math.ceil(min(waits)))
     raise HTTPException(503, f"No deployment is available for model '{row['alias']}'", headers=headers)
+
+
+MAX_DEPLOYMENTS_PER_REQUEST=3
+
+
+def all_deployments_failed(row:dict, tried:int, attempts: int, last)->JSONResponse:
+    # Every deployment failed: one error naming the alias and the attempts made
+    message=f"Model '{row['alias']}' failed on all {tried} deployments after {attempts} attempts"
+    headers={}
+    if "x-request-id" in last.headers:
+        headers["X-Request-ID"]=last.headers["x-request-id"]
+    return JSONResponse({"error":{"message": message}}, status_code=502, headers=headers)
+
 
 def send_req(endpoint:str, body:dict, key:dict):
     # Chat, embeddings and completions: body goes to the provider with real model name here
@@ -395,21 +411,49 @@ def send_req(endpoint:str, body:dict, key:dict):
         usage_estimate=logic.estimate_tokens(guardrails.prompt_texts(body))
     if body.get("stream") and endpoint!="chat":
         raise HTTPException(400, "Streaming is only available on /chat/completions")
-    deployment=pick_deployment(row, key)
-    streaming=False
-    try:
-        provider_body={**body,"model":deployment["model"]}
-        if endpoint=="chat":
-            provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
-        if body.get("stream"):
-            response=send_to_prov_stream(provider_body, row, deployment, key, request_text)
-            # A stream that started releases the deployment itself when it ends
-            streaming=isinstance(response, StreamingResponse)
+    # H18IALMOND-37: share the alias across its deployments, skipping any in cooldown
+    deployments=load_deployments(row)
+    balancer=load_balancer.balancer
+    tried=[]
+    attempts=0
+    last=None
+    while len(tried)<MAX_DEPLOYMENTS_PER_REQUEST:
+        remaining=[d for d in deployments if d["id"] not in tried]
+        deployment=balancer.acquire(row["id"], remaining, row.get("routing_strategy")) if remaining else None
+        if deployment is None:
+            break
+        tried.append(deployment["id"])
+        # Is there another deployment this request could still go to?
+        has_budget_left=len(tried)<MAX_DEPLOYMENTS_PER_REQUEST
+        untried=[d for d in deployments if d["id"] not in tried]
+        untried_and_usable=[d for d in untried if balancer.cooldown_left(d["id"])==0]
+        # With a fallback behind it, retrying failing provider only delays the move
+        has_fallback=has_budget_left and len(untried_and_usable)>0
+        attempt_row=without_retries(row) if has_fallback else row
+        streaming=False
+        try:
+            provider_body={**body,"model":deployment["model"]}
+            if endpoint=="chat":
+                provider_body=logic.apply_master_prompt(provider_body, row.get("prompt"))
+            if body.get("stream"):
+                response=send_to_prov_stream(provider_body, attempt_row, deployment, key, request_text)
+                # A stream that started releases the deployment itself when it ends
+                streaming=isinstance(response, StreamingResponse)
+            else:
+                response=send_to_prov_json(endpoint, provider_body, attempt_row, deployment, key, request_text, usage_estimate)
+        finally:
+            if not streaming:
+                load_balancer.balancer.release(deployment["id"])
+        if streaming or not logic.is_deployment_failure(response.status_code):
             return response
-        return send_to_prov_json(endpoint, provider_body, row, deployment, key, request_text, usage_estimate)
-    finally:
-        if not streaming:
-            load_balancer.balancer.release(deployment["id"])
+        last=response
+        attempts+=getattr(response, "attempts", 1)
+        
+    if last is None:
+        refuse_unavailable(row, key, deployments)
+    if len(tried)==1:
+        return last
+    return all_deployments_failed(row, len(tried), attempts, last)
 
 """def send_responses(endpoint:str, body:dict, key:dict):
     # responses 

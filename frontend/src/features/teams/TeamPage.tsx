@@ -5,7 +5,6 @@ import { Link, useParams } from 'react-router'
 
 import { getTeamBudget } from '@/api/teams'
 import { queryKeys, useModels, useProjects, useTeams } from '@/api/hooks'
-import { useCurrentUser } from '@/auth/useAuth'
 import { EmptyState } from '@/components/layout/EmptyState'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { SkeletonLines } from '@/components/layout/Placeholders'
@@ -30,7 +29,6 @@ import {
 import { BudgetBar } from '@/features/overview/BudgetBar'
 import { formatMoney } from '@/lib/format'
 
-import { ChangeTeamLeadDialog } from './ChangeTeamLeadDialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { MembersCard } from './MembersCard'
 import { ProjectBudgetDialog } from './ProjectBudgetDialog'
@@ -38,13 +36,10 @@ import { useCanManageTeam } from './useCanManageTeam'
 
 export function TeamPage() {
   const { teamId = '' } = useParams()
-  const user = useCurrentUser()
   const teams = useTeams()
   const team = teams.data?.find(
     (candidate) => candidate.id === teamId,
   )
-
-  const isAdmin = user.role === 'admin'
 
   return (
     <div className="space-y-6">
@@ -60,21 +55,13 @@ export function TeamPage() {
           </Link>
         </Button>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">
-              {team?.name ?? 'Team'}
-            </h1>
+        <h1 className="text-2xl font-semibold">
+          {team?.name ?? 'Team'}
+        </h1>
 
-            <p className="text-muted-foreground">
-              The team's projects and the people who use them.
-            </p>
-          </div>
-
-          {isAdmin && team && (
-            <ChangeTeamLeadDialog teamId={teamId} />
-          )}
-        </div>
+        <p className="text-muted-foreground">
+          The team's projects and the people who use them.
+        </p>
       </div>
 
       {teams.isError && (

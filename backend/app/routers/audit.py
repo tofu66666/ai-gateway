@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
@@ -30,6 +31,8 @@ class AuditLogRequest(BaseModel):
     user_email: str | None = None
     start: int | None = None
     end: int | None = None
+    team_id: UUID | None = None
+    model_id: UUID | None = None
 
 
 def add_email_to_row(
@@ -70,10 +73,13 @@ def list_audit_logs(
     payload: AuditLogRequest = Depends(),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """List audit entries filtered by action, user email, and time range."""
+    """List audit entries filtered by resource, action, user email, and time range."""
     if current_user.role != "admin":
         response.status_code = status.HTTP_403_FORBIDDEN
         return {"message": "Forbidden: only admins can view audit logs"}
+
+    if payload.team_id is not None and payload.model_id is not None:
+        return []
 
     query = supabase.table("audits").select(
         "id, user_id, action, target_id, details, created_at"
@@ -81,6 +87,23 @@ def list_audit_logs(
 
     if payload.action is not None:
         query = query.eq("action", payload.action)
+
+    if payload.team_id is not None:
+        query = query.in_(
+            "action",
+            [
+                "team_create",
+                "team_modify",
+                "team_modify_owner",
+                "team_add_user",
+                "team_remove_user",
+            ],
+        ).eq("target_id", str(payload.team_id))
+
+    if payload.model_id is not None:
+        query = query.in_("action", ["model_create", "model_modify"]).eq(
+            "target_id", str(payload.model_id)
+        )
 
     if payload.start is not None:
         query = query.gte("created_at", iso_utc(payload.start))

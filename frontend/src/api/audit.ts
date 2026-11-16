@@ -1,3 +1,4 @@
+
 import { apiFetch } from './client'
 
 export type AuditAction =
@@ -29,6 +30,8 @@ export type AuditLogFilters = {
   user_email?: string
   start?: number
   end?: number
+  team_id?: string
+  model_id?: string
 }
 
 export function getAuditActions() {
@@ -49,6 +52,12 @@ export function getAuditLogs(filters: AuditLogFilters = {}) {
   }
   if (filters.end !== undefined) {
     params.set('end', String(filters.end))
+  }
+  if (filters.team_id) {
+    params.set('team_id', filters.team_id)
+  }
+  if (filters.model_id) {
+    params.set('model_id', filters.model_id)
   }
 
   const query = params.toString()

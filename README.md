@@ -88,26 +88,26 @@ npm run e2e
 
 ### Results
 
-On `main` at 5b2794b (13 Nov 2026): **564 backend tests pass in about 7 seconds, with 80% line coverage of `backend/app`**, and both Cypress specs pass.
+On 18 Nov 2026: **631 backend tests pass, with 86% line coverage of `backend/app`**, and both Cypress specs pass.
 
 | Area | Tests | Files |
 |---|---:|---|
-| Gateway requests, streaming, embeddings | 146 | `test_gateway*.py` |
-| Teams and projects | 93 | `test_team.py`, `test_project.py` |
-| Models, deployments, retry settings | 87 | `test_models.py`, `test_deployment_settings.py`, `test_resilience_settings.py` |
+| Gateway requests, streaming, embeddings, failover | 153 | `test_gateway*.py` |
+| Teams and projects | 124 | `test_team.py`, `test_project.py` |
+| Models, deployments, retry settings | 89 | `test_models.py`, `test_deployment_settings.py`, `test_resilience_settings.py` |
 | Virtual keys (create, list, rotate, revoke) | 76 | `test_virtual_key.py`, `test_manage_keys.py`, `test_list_keys.py` |
-| Load balancing, retries, providers | 52 | `test_load_balancer.py`, `test_load_split.py`, `test_retry_policy.py`, `test_providers.py` |
+| Load balancing, retries, providers | 61 | `test_load_balancer.py`, `test_load_split.py`, `test_retry_policy.py`, `test_providers.py` |
 | Guardrails | 44 | `test_guardrails.py`, `test_guardrail_settings.py` |
 | Request logging, history, cost | 38 | `test_request_log.py`, `test_request_history.py`, `test_cost.py` |
-| Register, login, current user | 26 | `test_auth.py`, `test_login.py`, `test_current_user.py` |
+| Register, login, current user, audit log | 44 | `test_auth.py`, `test_login.py`, `test_current_user.py` |
 | Health | 2 | `test_health.py` |
 
 | Coverage | Modules |
 |---|---|
 | 100% | `gateway_logic_helper`, `load_balancer`, `request_log`, `retry_policy`, `cost`, `config`, `routers/deployment_settings`, `routers/guardrail_settings`, `routers/health`, `routers/request_history` |
-| 90–99% | `budget`, `dependencies`, `guardrails`, `providers`, `routers/auth`, `routers/gateway`, `routers/models` |
-| 80–89% | `routers/virtual_key` |
-| Below 80% | `routers/team` (59%), `routers/project` (60%), `routers/db` (45%), `routers/audit` (37%), `routers/stats` (14%) |
+| 90–99% | `budget`, `dependencies`, `guardrails`, `providers`, `routers/audit`, `routers/auth`, `routers/gateway`, `routers/models` |
+| 80–89% | `routers/virtual_key`, `routers/project` |
+| Below 80% | `routers/team` (76%), `routers/db` (45%), `routers/stats` (15%) |
 
 ### What the automated tests do not cover
 

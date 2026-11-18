@@ -11,13 +11,12 @@ export default defineConfig({
     },
   },
   server: {
-    // In `npm run dev`, forward /api to the gateway on port 8000 and strip
-    // the prefix, the same way nginx does in Docker.
+    // In `npm run dev`, forward /api to the gateway on port 8000.
+    // The backend mounts routers at /api, so no prefix stripping needed.
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },

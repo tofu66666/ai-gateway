@@ -2,7 +2,12 @@
 import { useState } from 'react'
 import { Check, Copy, Info } from 'lucide-react'
 import type { AuditAction, AuditLogFilters } from '@/api/audit'
-import { useAuditActions, useAuditLogs } from '@/api/hooks'
+import {
+  useAuditActions,
+  useAuditLogs,
+  useModels,
+  useTeams,
+} from '@/api/hooks'
 import { ErrorState } from '@/components/layout/ErrorState'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,6 +50,8 @@ const emptyFilters: AuditFilterValues = {
   userEmail: '',
   startDate: '',
   endDate: '',
+  teamId: '',
+  modelId: '',
 }
 
 function startOfDate(value: string) {
@@ -278,13 +285,28 @@ function AuditDetails({
 
 export function AuditLogsPage() {
   const [filters, setFilters] = useState<AuditFilterValues>(emptyFilters)
+
   const actions = useAuditActions()
+  const teams = useTeams()
+  const models = useModels()
+
+  const teamOptions = (teams.data ?? []).map((team) => ({
+    id: team.id,
+    name: team.name,
+  }))
+
+  const modelOptions = (models.data ?? []).map((model) => ({
+    id: model.id,
+    name: model.alias,
+  }))
 
   const queryFilters: AuditLogFilters = {
     action: filters.action === 'all' ? undefined : filters.action,
     user_email: filters.userEmail.trim() || undefined,
     start: startOfDate(filters.startDate),
     end: endOfDate(filters.endDate),
+    team_id: filters.teamId || undefined,
+    model_id: filters.modelId || undefined,
   }
 
   const auditLogs = useAuditLogs(queryFilters)
@@ -302,6 +324,8 @@ export function AuditLogsPage() {
       <AuditFilters
         filters={filters}
         actions={actions.data ?? []}
+        teams={teamOptions}
+        models={modelOptions}
         onChange={setFilters}
         onReset={() => setFilters(emptyFilters)}
       />
@@ -310,6 +334,20 @@ export function AuditLogsPage() {
         <ErrorState
           title="Couldn't load audit actions"
           error={actions.error}
+        />
+      )}
+
+      {teams.error && (
+        <ErrorState
+          title="Couldn't load teams"
+          error={teams.error}
+        />
+      )}
+
+      {models.error && (
+        <ErrorState
+          title="Couldn't load models"
+          error={models.error}
         />
       )}
 

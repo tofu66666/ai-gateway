@@ -44,6 +44,61 @@ PROVIDERS={
         "stream_usage": True, 
         "native_response": True,
     },
+    # api key url:  https://openrouter.ai/keys or  https://openrouter.ai/settings/keys
+    "openrouter":{
+        "base_url":lambda: "https://openrouter.ai/api/v1",
+        "api_key": lambda: config.OPENROUTER_API_KEY, 
+        "stream_usage": True, 
+        "native_response": True,
+    },
+    # 30 RPM 1000 req/day, 8K TPM, 200K tokens/day
+    # api key url: https://console.groq.com/keys
+    "groq":{
+        "base_url":lambda: "https://api.groq.com/openai/v1",
+        "api_key": lambda: config.GROQ_API_KEY, 
+        "stream_usage": True, 
+        "native_response": True,
+    },
+    # Experiment plan, need phone number
+    # api key url:https://console.mistral.ai/api-keys
+    "mistral":{
+        "base_url":lambda: "https://api.mistral.ai/v1",
+        "api_key": lambda: config.MISTRAL_API_KEY, 
+        "stream_usage": True, 
+        "native_response": False,
+    },
+    # api key url: https://cloud.sambanova.ai/apis
+    "sambanova":{
+        "base_url":lambda: "https://api.sambanova.ai/v1",
+        "api_key": lambda: config.SAMBANOVA_API_KEY, 
+        "stream_usage":  False, 
+        "native_response": True,
+    },
+    # base_url includes account ID
+    # api key url: https://dash.cloudflare.com/profile/api-tokens ((Account ID: Workers AI page)
+    "cloudflare":{
+        "base_url":lambda: ( f"https://api.cloudflare.com/client/v4/accounts/"f"{config.CF_ACCOUNT_ID}/ai/v1"),
+        "api_key": lambda: config.CLOUDFLARE_API_TOKEN, 
+        "stream_usage":  False, 
+        "native_response": False,
+    },
+    # Subscribe in NVIDIA Developer Program
+    # api key url: https://build.nvidia.com/settings/api-keys
+    "nvidia":{
+        "base_url":lambda: "https://integrate.api.nvidia.com/v1",
+        "api_key": lambda: config.NVIDIA_API_KEY, 
+        "stream_usage":  False, 
+        "native_response": True,
+    },
+    # Trial - noncommercial use only
+    # api key url: https://dashboard.cohere.com/api-keys
+    "cohere":{
+        "base_url":lambda: ( "https://api.cohere.ai/compatibility/v1"),
+        "api_key": lambda: config.COHERE_API_KEY, 
+        "stream_usage":  False, 
+        "native_response": False,
+    },
+
 }
 
 # Path on the provider

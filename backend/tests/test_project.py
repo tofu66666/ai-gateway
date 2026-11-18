@@ -216,6 +216,177 @@ def test_empty_accessible_team_set_does_not_query_projects(monkeypatch):
     fake_supabase.table.assert_not_called()
 
 
+NEW_PROJECT = {
+    "team_id": TEAM_ID,
+    "name": "Alpha Project",
+    "model_ids": [MODEL_A],
+    "budget_per_month": 100,
+}
+
+
+def set_create_project(monkeypatch, *, role="team_lead", owner_id="user-1"):
+    """Mock POST /projects; by default user-1 is a team lead who owns the team."""
+    monkeypatch.setattr(project, "get_user_id", lambda token: "user-1")
+    monkeypatch.setattr(project, "get_user_role", lambda user_id: role)
+    team = MagicMock(return_value={"id": TEAM_ID, "owner_id": owner_id})
+    monkeypatch.setattr(project, "get_team_by_id", team)
+    models = MagicMock(return_value=[{"id": MODEL_A}])
+    monkeypatch.setattr(project, "get_model_rows", models)
+    insert = MagicMock(return_value=PROJECT_ROW)
+    monkeypatch.setattr(project, "insert_project", insert)
+    audits = MagicMock()
+    monkeypatch.setattr(project, "supabase", audits)
+    return SimpleNamespace(team=team, models=models, insert=insert, audits=audits)
+
+
+def test_team_owner_creates_project(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+
+    response = client.post(
+        "/projects", headers=AUTH, json={**NEW_PROJECT, "name": "  Alpha Project  "}
+    )
+
+    assert response.status_code == 201
+    assert response.json() == PROJECT_ROW
+    mocks.models.assert_called_once_with([UUID(MODEL_A)])
+    # The name is trimmed and the IDs are stored as strings.
+    mocks.insert.assert_called_once_with(
+        {
+            "team_id": TEAM_ID,
+            "name": "Alpha Project",
+            "model_ids": [MODEL_A],
+            "budget_per_month": 100.0,
+        }
+    )
+
+
+def test_project_create_is_audited(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+
+    client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    mocks.audits.table.assert_called_once_with("audits")
+    audit = mocks.audits.table.return_value.insert.call_args.args[0]
+    assert audit["action"] == "project_create"
+    assert audit["user_id"] == "user-1"
+    assert audit["target_id"] == PROJECT_ID
+    assert audit["details"]["name"] == "Alpha Project"
+    assert audit["details"]["team_id"] == TEAM_ID
+
+
+def test_audit_failure_does_not_fail_project_creation(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+    mocks.audits.table.return_value.insert.return_value.execute.side_effect = (
+        RuntimeError("database detail")
+    )
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 201
+
+
+def test_admin_can_create_project_in_another_team(monkeypatch):
+    mocks = set_create_project(monkeypatch, role="admin", owner_id="another-lead")
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 201
+    mocks.insert.assert_called_once()
+
+
+@pytest.mark.parametrize("role", ["member", "team_lead"])
+def test_non_owner_cannot_create_project(monkeypatch, role):
+    mocks = set_create_project(monkeypatch, role=role, owner_id="another-lead")
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 403
+    mocks.models.assert_not_called()
+    mocks.insert.assert_not_called()
+
+
+def test_invalid_token_cannot_create_project(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+    monkeypatch.setattr(project, "get_user_id", lambda token: None)
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 403
+    assert response.json() == {"message": "Invalid token"}
+    mocks.team.assert_not_called()
+
+
+def test_create_project_in_unknown_team_is_not_found(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+    mocks.team.return_value = None
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 404
+    mocks.insert.assert_not_called()
+
+
+def test_unknown_model_id_does_not_create_project(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+
+    response = client.post(
+        "/projects", headers=AUTH, json={**NEW_PROJECT, "model_ids": [MODEL_A, MODEL_B]}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "One or more model IDs do not exist"}
+    mocks.insert.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failing, message",
+    [
+        ("team", "Failed to look up team"),
+        ("models", "Failed to validate models"),
+        ("insert", "Failed to create project"),
+    ],
+)
+def test_create_project_database_failure_returns_safe_error(
+    monkeypatch, failing, message
+):
+    mocks = set_create_project(monkeypatch)
+    getattr(mocks, failing).side_effect = RuntimeError("database detail")
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 500
+    assert response.json() == {"message": message}
+
+
+def test_insert_returning_no_row_is_a_server_error(monkeypatch):
+    mocks = set_create_project(monkeypatch)
+    mocks.insert.return_value = None
+
+    response = client.post("/projects", headers=AUTH, json=NEW_PROJECT)
+
+    assert response.status_code == 500
+    mocks.audits.table.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"name": "   "},
+        {"budget_per_month": -0.01},
+        {"team_id": "not-a-uuid"},
+        {"model_ids": ["not-a-uuid"]},
+        {"model_ids": None},
+    ],
+)
+def test_create_project_rejects_invalid_payload(monkeypatch, changes):
+    mocks = set_create_project(monkeypatch)
+
+    response = client.post("/projects", headers=AUTH, json={**NEW_PROJECT, **changes})
+
+    assert response.status_code == 422
+    mocks.team.assert_not_called()
+
+
 def set_patch_project(monkeypatch, *, owner_id="user-1", updated=None):
     monkeypatch.setattr(project, "get_project_by_id", lambda project_id: PROJECT_ROW)
     monkeypatch.setattr(

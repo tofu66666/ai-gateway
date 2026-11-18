@@ -432,3 +432,158 @@ def test_outsider_cannot_see_team_requests(db):
 
     assert response.status_code == 403
     db["supabase"].table.return_value.select.return_value.in_.assert_not_called()
+
+
+def set_team_owner(db, owner_rows):
+    # Non-admins are checked against the team's owner_id first.
+    by_team_and_owner = db["supabase"].table.return_value.select.return_value.eq
+    by_team_and_owner.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=owner_rows
+    )
+    db["supabase"].auth.admin.list_users.return_value = [
+        SimpleNamespace(id=user_id, email=email) for user_id, email in EMAILS.items()
+    ]
+    return by_team_and_owner
+
+
+def audit_rows(db):
+    return [c.args[0] for c in db["supabase"].table.return_value.insert.call_args_list]
+
+
+def removed_member(db):
+    delete = db["supabase"].table.return_value.delete
+    delete.assert_called_once()
+    by_user = delete.return_value.eq
+    return by_user.call_args.args, by_user.return_value.eq.call_args.args
+
+
+def test_owner_adds_member_to_team(db):
+    by_team_and_owner = set_team_owner(db, [{"owner_id": "lead-1"}])
+
+    response = call(
+        "put", "/team/user", {"team_id": "team-1", "user_id": "member-1", "can_create_key": True}
+    )
+
+    assert response.status_code == 200
+    assert by_team_and_owner.call_args.args == ("id", "team-1")
+    assert by_team_and_owner.return_value.eq.call_args.args == ("owner_id", "lead-1")
+    db["supabase"].table.return_value.upsert.assert_called_once_with(
+        {"user_id": "member-1", "team_id": "team-1", "can_create_key": True},
+        on_conflict="user_id,team_id",
+    )
+    assert audit_rows(db) == [
+        {
+            "action": "team_add_user",
+            "user_id": "lead-1",
+            "target_id": "team-1",
+            "details": {"user_id": "member-1", "can_create_key": True},
+        }
+    ]
+
+
+def test_owner_adds_member_by_email_without_key_permission(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+
+    response = call("put", "/team/user", {"team_id": "team-1", "email": "member@example.com"})
+
+    assert response.status_code == 200
+    db["supabase"].table.return_value.upsert.assert_called_once_with(
+        {"user_id": "member-1", "team_id": "team-1", "can_create_key": False},
+        on_conflict="user_id,team_id",
+    )
+
+
+def test_owner_removes_member_from_team(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+
+    response = call("delete", "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 200
+    assert removed_member(db) == (("user_id", "member-1"), ("team_id", "team-1"))
+    assert audit_rows(db) == [
+        {
+            "action": "team_remove_user",
+            "user_id": "lead-1",
+            "target_id": "team-1",
+            "details": {"user_id": "member-1"},
+        }
+    ]
+
+
+def test_owner_removes_member_by_email(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+
+    response = call("delete", "/team/user", {"team_id": "team-1", "email": "member@example.com"})
+
+    assert response.status_code == 200
+    assert removed_member(db) == (("user_id", "member-1"), ("team_id", "team-1"))
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_non_owner_cannot_change_members(db, method):
+    db["user_id"] = "other-lead"
+    set_team_owner(db, [])
+
+    response = call(method, "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 403
+    db["supabase"].table.return_value.upsert.assert_not_called()
+    db["supabase"].table.return_value.delete.assert_not_called()
+    assert audit_rows(db) == []
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_admin_changes_members_without_owning_team(db, method):
+    db["user_id"], db["role"] = "admin-1", "admin"
+    set_team_owner(db, [])
+
+    response = call(method, "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 200
+    db["supabase"].table.return_value.select.assert_not_called()
+    assert audit_rows(db)[0]["user_id"] == "admin-1"
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_unknown_email_is_rejected(db, method):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+
+    response = call(method, "/team/user", {"team_id": "team-1", "email": "nobody@example.com"})
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "No user found with email nobody@example.com"}
+    db["supabase"].table.return_value.upsert.assert_not_called()
+    db["supabase"].table.return_value.delete.assert_not_called()
+
+
+def test_failed_add_is_a_server_error_and_not_audited(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+    upsert = db["supabase"].table.return_value.upsert.return_value
+    upsert.execute.side_effect = Exception("database down")
+
+    response = call("put", "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 500
+    assert audit_rows(db) == []
+
+
+def test_failed_remove_is_a_server_error_and_not_audited(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+    delete = db["supabase"].table.return_value.delete.return_value
+    delete.eq.return_value.eq.return_value.execute.side_effect = Exception("database down")
+
+    response = call("delete", "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 500
+    assert audit_rows(db) == []
+
+
+def test_failed_audit_does_not_fail_adding_a_member(db):
+    set_team_owner(db, [{"owner_id": "lead-1"}])
+    insert = db["supabase"].table.return_value.insert.return_value
+    insert.execute.side_effect = Exception("database down")
+
+    response = call("put", "/team/user", {"team_id": "team-1", "user_id": "member-1"})
+
+    assert response.status_code == 200
+    db["supabase"].table.return_value.upsert.assert_called_once()
